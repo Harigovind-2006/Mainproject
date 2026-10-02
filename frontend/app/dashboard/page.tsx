@@ -1,662 +1,423 @@
 "use client";
 
 import { useState } from "react";
+import Navbar from "../components/Navbar";
+import RouteMapSVG from "../components/RouteMapSVG";
+import TelemetryChartSVG from "../components/TelemetryChartSVG";
+import DigitalTwinPanel from "../components/DigitalTwinPanel";
+import FleetTable from "../components/FleetTable";
+import BenchmarkPanel from "../components/BenchmarkPanel";
+import { useFleetStore } from "@/lib/useFleetStore";
 
-export default function Dashboard() {
-  const [aiActive, setAiActive] = useState(true);
+export default function DashboardPage() {
+  const {
+    route,
+    fleet,
+    selectedVehicleId,
+    setSelectedVehicleId,
+    activeVehicle,
+    isConnected,
+    aiActive,
+    toggleAiActive,
+    correctionMode,
+    setCorrectionMode,
+    simulationActive,
+    setSimulationActive,
+    history,
+    benchmark,
+    resetFleet,
+    injectDelay,
+  } = useFleetStore();
+
+  const [activeTab, setActiveTab] = useState<string>("overview");
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const handleInjectDelay = (seconds: number) => {
+    injectDelay(selectedVehicleId, seconds);
+    showToast(
+      seconds > 0
+        ? `Injected +${seconds}s schedule delay on ${selectedVehicleId}`
+        : `Applied pacing boost ${seconds}s on ${selectedVehicleId}`
+    );
+  };
+
+  const handleReset = () => {
+    resetFleet();
+    showToast("Fleet digital twins and route progress reset.");
+  };
+
+  const vehicleIds = fleet.map((v) => v.vehicle_id);
+
+  // Compute fleet wide KPI averages
+  const avgSpeed = (fleet.reduce((acc, v) => acc + v.actual_speed, 0) / Math.max(1, fleet.length)).toFixed(2);
+  const avgDrift = (fleet.reduce((acc, v) => acc + v.delta_T, 0) / Math.max(1, fleet.length)).toFixed(2);
+  const avgProgress = (fleet.reduce((acc, v) => acc + v.percent_complete, 0) / Math.max(1, fleet.length)).toFixed(1);
 
   return (
-    <main className="min-h-screen bg-[#070b14] text-white">
+    <main className="min-h-screen bg-[#070b14] text-white flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950">
+      {/* Top Navigation */}
+      <Navbar
+        isConnected={isConnected}
+        activeVehicleId={selectedVehicleId}
+        vehicleIds={vehicleIds}
+        onSelectVehicle={setSelectedVehicleId}
+        simulationActive={simulationActive}
+        onToggleSimulation={() => setSimulationActive(!simulationActive)}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+      />
 
-      {/* Sidebar */}
-      <aside className="fixed left-0 top-0 h-screen w-64
-                         bg-[#0b111d] border-r border-white/10
-                         p-6">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-[#0f172a] border border-cyan-500/40 text-cyan-300 px-4 py-2.5 rounded-xl shadow-2xl backdrop-blur-md text-xs font-medium flex items-center gap-2 animate-bounce">
+          <span>⚡</span>
+          <span>{toastMessage}</span>
+        </div>
+      )}
 
-        {/* Logo */}
-        <div className="flex items-center gap-3 mb-10">
-          <div className="w-10 h-10 rounded-xl bg-blue-600
-                          flex items-center justify-center">
-            <span className="font-bold text-lg">A</span>
+      {/* Main Content Area */}
+      <div className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 pt-24 pb-12 flex flex-col gap-6">
+        {/* Top Control Bar / Hero Banner */}
+        <div className="bg-gradient-to-r from-[#0b111d] via-[#0d1627] to-[#0b111d] border border-white/10 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
+          <div>
+            <div className="flex items-center gap-2.5 mb-1">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
+                Fleet Mission Control & Closed-Loop Correction
+              </h1>
+            </div>
+            <p className="text-xs sm:text-sm text-slate-400">
+              Autonomous agricultural rover guidance • Ospina & Noguchi (2025) kinematic formulation
+            </p>
           </div>
 
-          <div>
-            <h1 className="font-bold text-lg">
-              AutoDrive
-            </h1>
+          <div className="flex flex-wrap items-center gap-3">
+            {/* AI Status Pill */}
+            <div
+              onClick={toggleAiActive}
+              className={`cursor-pointer px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-2 transition ${
+                aiActive
+                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20"
+                  : "bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20"
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${aiActive ? "bg-emerald-400" : "bg-red-400"}`} />
+              <span>{aiActive ? "AI Speed Control ON" : "AI Control OFF"}</span>
+            </div>
 
-            <p className="text-xs text-gray-500">
-              AI Control System
-            </p>
+            {/* Quick Action Reset */}
+            <button
+              onClick={handleReset}
+              className="px-3.5 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-medium text-slate-300 hover:bg-white/10 hover:text-white transition flex items-center gap-1.5"
+            >
+              <span>↺</span> Reset Field
+            </button>
           </div>
         </div>
 
-        {/* Navigation */}
-        <nav className="space-y-2">
-
-          <NavItem
-            name="Dashboard"
-            active
-            icon="▦"
-          />
-
-          <NavItem
-            name="Vehicles"
-            icon="🚜"
-          />
-
-          <NavItem
-            name="Live Tracking"
-            icon="◉"
-          />
-
-          <NavItem
-            name="AI Model"
-            icon="◈"
-          />
-
-          <NavItem
-            name="Analytics"
-            icon="▥"
-          />
-
-        </nav>
-
-        {/* Bottom */}
-        <div className="absolute bottom-6 left-6 right-6">
-
-          <NavItem
-            name="Settings"
-            icon="⚙"
-          />
-
-          <div className="mt-5 pt-5 border-t border-white/10">
-            <p className="text-xs text-gray-500">
-              System Status
-            </p>
-
-            <div className="flex items-center gap-2 mt-2">
-              <span className="w-2 h-2 rounded-full bg-green-500" />
-
-              <span className="text-sm text-green-400">
-                All systems operational
+        {/* 4 Primary KPI Summary Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Card 1: Active Unit Speed */}
+          <div className="bg-[#0b111d] border border-white/10 rounded-2xl p-4 flex flex-col justify-between hover:border-cyan-500/30 transition">
+            <div className="flex items-center justify-between text-slate-400 text-xs">
+              <span className="font-semibold uppercase tracking-wider">Target Unit Speed</span>
+              <span className="text-base">⚡</span>
+            </div>
+            <div className="my-2 flex items-baseline gap-2">
+              <span className="text-3xl font-bold font-mono text-cyan-400">
+                {activeVehicle.actual_speed.toFixed(2)}
+              </span>
+              <span className="text-xs text-slate-400 font-mono">
+                / {activeVehicle.target_speed.toFixed(2)} m/s
               </span>
             </div>
-          </div>
-
-        </div>
-
-      </aside>
-
-      {/* Main Content */}
-      <section className="ml-64 min-h-screen">
-
-        {/* Header */}
-        <header className="h-20 border-b border-white/10
-                           flex items-center justify-between
-                           px-8">
-
-          <div>
-            <h2 className="text-xl font-semibold">
-              Vehicle Overview
-            </h2>
-
-            <p className="text-sm text-gray-500">
-              Real-time autonomous vehicle monitoring
-            </p>
-          </div>
-
-          <div className="flex items-center gap-5">
-
-            <div className="flex items-center gap-2
-                            px-4 py-2 rounded-full
-                            bg-green-500/10 border border-green-500/20">
-
-              <span className="w-2 h-2 bg-green-500 rounded-full" />
-
-              <span className="text-sm text-green-400">
-                System Online
-              </span>
-
+            <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-white/5 pt-2">
+              <span>Ideal: {activeVehicle.ideal_speed.toFixed(2)} m/s</span>
+              <span className="text-cyan-400 font-mono">{activeVehicle.vehicle_id}</span>
             </div>
-
-            <div className="w-10 h-10 rounded-full
-                            bg-blue-600 flex items-center
-                            justify-center font-semibold">
-              HM
-            </div>
-
           </div>
 
-        </header>
-
-        {/* Dashboard */}
-        <div className="p-8">
-
-          {/* Stats */}
-          <div className="grid grid-cols-4 gap-5">
-
-            <StatCard
-              title="Current Speed"
-              value="12.4"
-              unit="m/s"
-              change="+4.2%"
-              icon="⚡"
-            />
-
-            <StatCard
-              title="Schedule Drift"
-              value="+18"
-              unit="sec"
-              change="Behind schedule"
-              icon="◷"
-            />
-
-            <StatCard
-              title="Route Progress"
-              value="68"
-              unit="%"
-              change="12.4 km completed"
-              icon="⌁"
-            />
-
-            <StatCard
-              title="AI Accuracy"
-              value="92.6"
-              unit="%"
-              change="Model confidence"
-              icon="◈"
-            />
-
-          </div>
-
-          {/* Main Grid */}
-          <div className="grid grid-cols-3 gap-5 mt-6">
-
-            {/* Chart */}
-            <div className="col-span-2 bg-[#0b111d]
-                            border border-white/10
-                            rounded-2xl p-6">
-
-              <div className="flex justify-between items-center mb-6">
-
-                <div>
-                  <h3 className="font-semibold text-lg">
-                    Speed & Schedule Drift
-                  </h3>
-
-                  <p className="text-sm text-gray-500">
-                    Real-time vehicle performance
-                  </p>
-                </div>
-
-                <select
-                  className="bg-[#111827] border border-white/10
-                             rounded-lg px-3 py-2 text-sm
-                             text-gray-300"
-                >
-                  <option>Last 30 minutes</option>
-                  <option>Last hour</option>
-                  <option>Today</option>
-                </select>
-
-              </div>
-
-              {/* Fake Chart */}
-              <div className="h-64 relative">
-
-                {/* Grid */}
-                <div className="absolute inset-0
-                                flex flex-col justify-between">
-
-                  {[1, 2, 3, 4, 5].map((item) => (
-                    <div
-                      key={item}
-                      className="border-t border-white/5"
-                    />
-                  ))}
-
-                </div>
-
-                {/* Chart line */}
-                <svg
-                  className="absolute inset-0 w-full h-full"
-                  viewBox="0 0 800 250"
-                  preserveAspectRatio="none"
-                >
-                  <polyline
-                    points="
-                    0,190
-                    80,175
-                    160,185
-                    240,140
-                    320,150
-                    400,115
-                    480,125
-                    560,80
-                    640,95
-                    720,65
-                    800,75
-                    "
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                    className="text-blue-500"
-                  />
-
-                  <polyline
-                    points="
-                    0,210
-                    80,200
-                    160,205
-                    240,185
-                    320,190
-                    400,165
-                    480,170
-                    560,145
-                    640,150
-                    720,125
-                    800,130
-                    "
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="3"
-                    strokeDasharray="8 8"
-                    className="text-purple-500"
-                  />
-                </svg>
-
-              </div>
-
-              <div className="flex gap-6 mt-4 text-sm">
-
-                <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 bg-blue-500 rounded-full" />
-                  Actual Speed
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 bg-purple-500 rounded-full" />
-                  Target Speed
-                </div>
-
-              </div>
-
+          {/* Card 2: Schedule Drift delta_T */}
+          <div className="bg-[#0b111d] border border-white/10 rounded-2xl p-4 flex flex-col justify-between hover:border-violet-500/30 transition">
+            <div className="flex items-center justify-between text-slate-400 text-xs">
+              <span className="font-semibold uppercase tracking-wider">Schedule Drift (ΔT)</span>
+              <span className="text-base">⏱</span>
             </div>
-
-            {/* Vehicle Status */}
-            <div className="bg-[#0b111d]
-                            border border-white/10
-                            rounded-2xl p-6">
-
-              <div className="flex justify-between mb-6">
-
-                <h3 className="font-semibold text-lg">
-                  Vehicle Status
-                </h3>
-
-                <span className="text-xs text-gray-500">
-                  3 Vehicles
-                </span>
-
-              </div>
-
-              <Vehicle
-                name="Tractor Alpha"
-                id="AV-001"
-                status="Active"
-                speed="12.4 m/s"
-              />
-
-              <Vehicle
-                name="Tractor Beta"
-                id="AV-002"
-                status="Active"
-                speed="10.8 m/s"
-              />
-
-              <Vehicle
-                name="Tractor Gamma"
-                id="AV-003"
-                status="Idle"
-                speed="0 m/s"
-              />
-
-            </div>
-
-          </div>
-
-          {/* Bottom */}
-          <div className="grid grid-cols-3 gap-5 mt-6">
-
-            {/* AI Control */}
-            <div className="bg-[#0b111d]
-                            border border-white/10
-                            rounded-2xl p-6">
-
-              <div className="flex justify-between">
-
-                <div>
-                  <h3 className="font-semibold text-lg">
-                    AI Speed Control
-                  </h3>
-
-                  <p className="text-sm text-gray-500 mt-1">
-                    Autonomous correction
-                  </p>
-                </div>
-
-                <div className="w-10 h-10 rounded-xl
-                                bg-purple-500/10
-                                flex items-center justify-center">
-                  ◈
-                </div>
-
-              </div>
-
-              <div className="mt-6">
-
-                <div className="flex justify-between mb-2">
-                  <span className="text-gray-400">
-                    Current Speed
-                  </span>
-
-                  <span className="font-semibold">
-                    12.4 m/s
-                  </span>
-                </div>
-
-                <div className="flex justify-between">
-                  <span className="text-gray-400">
-                    AI Target
-                  </span>
-
-                  <span className="font-semibold text-blue-400">
-                    13.2 m/s
-                  </span>
-                </div>
-
-              </div>
-
-              <button
-                onClick={() => setAiActive(!aiActive)}
-                className={`w-full mt-6 py-3 rounded-xl
-                  font-semibold transition
-                  ${
-                    aiActive
-                      ? "bg-green-500/10 text-green-400 border border-green-500/20"
-                      : "bg-red-500/10 text-red-400 border border-red-500/20"
-                  }`}
+            <div className="my-2 flex items-baseline gap-2">
+              <span
+                className={`text-3xl font-bold font-mono ${
+                  activeVehicle.delta_T > 2
+                    ? "text-amber-400"
+                    : activeVehicle.delta_T < -1
+                    ? "text-cyan-400"
+                    : "text-emerald-400"
+                }`}
               >
-                {aiActive
-                  ? "● AI CONTROL ACTIVE"
-                  : "● AI CONTROL OFF"}
-              </button>
-
+                {activeVehicle.delta_T > 0 ? `+${activeVehicle.delta_T.toFixed(2)}` : activeVehicle.delta_T.toFixed(2)}s
+              </span>
+              <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-white/5 text-slate-300">
+                {activeVehicle.schedule_status.replace("_", " ")}
+              </span>
             </div>
-
-            {/* Route */}
-            <div className="bg-[#0b111d]
-                            border border-white/10
-                            rounded-2xl p-6">
-
-              <h3 className="font-semibold text-lg">
-                Current Route
-              </h3>
-
-              <p className="text-sm text-gray-500 mt-1">
-                Field Route #A102
-              </p>
-
-              <div className="mt-6">
-
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">
-                    Progress
-                  </span>
-
-                  <span>
-                    68%
-                  </span>
-                </div>
-
-                <div className="w-full h-2 bg-white/5
-                                rounded-full mt-3">
-
-                  <div
-                    className="h-2 bg-blue-500
-                               rounded-full"
-                    style={{ width: "68%" }}
-                  />
-
-                </div>
-
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 mt-6">
-
-                <div>
-                  <p className="text-xs text-gray-500">
-                    Distance
-                  </p>
-
-                  <p className="font-semibold mt-1">
-                    12.4 km
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-xs text-gray-500">
-                    Remaining
-                  </p>
-
-                  <p className="font-semibold mt-1">
-                    5.8 km
-                  </p>
-                </div>
-
-              </div>
-
+            <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-white/5 pt-2">
+              <span>Fleet Avg Drift:</span>
+              <span className="text-white font-mono">{avgDrift}s</span>
             </div>
-
-            {/* Prediction */}
-            <div className="bg-[#0b111d]
-                            border border-white/10
-                            rounded-2xl p-6">
-
-              <h3 className="font-semibold text-lg">
-                ETA Prediction
-              </h3>
-
-              <p className="text-sm text-gray-500 mt-1">
-                AI predicted completion
-              </p>
-
-              <div className="mt-7">
-
-                <p className="text-4xl font-bold">
-                  14:32
-                </p>
-
-                <p className="text-sm text-green-400 mt-2">
-                  18 seconds correction applied
-                </p>
-
-              </div>
-
-              <div className="mt-6 p-4 rounded-xl
-                              bg-blue-500/5
-                              border border-blue-500/10">
-
-                <p className="text-xs text-gray-500">
-                  Model recommendation
-                </p>
-
-                <p className="text-sm mt-2 text-blue-300">
-                  Increase target speed by 0.8 m/s
-                  to maintain schedule.
-                </p>
-
-              </div>
-
-            </div>
-
           </div>
 
+          {/* Card 3: Route Progress */}
+          <div className="bg-[#0b111d] border border-white/10 rounded-2xl p-4 flex flex-col justify-between hover:border-emerald-500/30 transition">
+            <div className="flex items-center justify-between text-slate-400 text-xs">
+              <span className="font-semibold uppercase tracking-wider">Field Coverage</span>
+              <span className="text-base">⌖</span>
+            </div>
+            <div className="my-2">
+              <div className="flex items-baseline justify-between mb-1.5">
+                <span className="text-3xl font-bold font-mono text-emerald-400">
+                  {activeVehicle.percent_complete.toFixed(1)}%
+                </span>
+                <span className="text-xs text-slate-400 font-mono">
+                  {activeVehicle.distance_covered.toFixed(0)} / {route.total_distance.toFixed(0)}m
+                </span>
+              </div>
+              <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-emerald-500 to-cyan-400 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.min(100, Math.max(0, activeVehicle.percent_complete))}%` }}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-white/5 pt-2">
+              <span>Segment: #{activeVehicle.current_segment_id}</span>
+              <span className="text-emerald-400">{activeVehicle.in_turn ? "Turn Arc" : "Straight"}</span>
+            </div>
+          </div>
+
+          {/* Card 4: Estimated Time Remaining (ETA) */}
+          <div className="bg-[#0b111d] border border-white/10 rounded-2xl p-4 flex flex-col justify-between hover:border-purple-500/30 transition">
+            <div className="flex items-center justify-between text-slate-400 text-xs">
+              <span className="font-semibold uppercase tracking-wider">ETA Completion</span>
+              <span className="text-base">◈</span>
+            </div>
+            <div className="my-2 flex items-baseline gap-2">
+              <span className="text-3xl font-bold font-mono text-purple-400">
+                {Math.floor(activeVehicle.time_remaining / 60)}:
+                {(activeVehicle.time_remaining % 60).toString().padStart(2, "0")}
+              </span>
+              <span className="text-xs text-slate-400 font-mono">remaining</span>
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-white/5 pt-2">
+              <span>Total Plan: {route.total_plan_time.toFixed(0)}s</span>
+              <span className="text-purple-300 font-mono">Elapsed: {activeVehicle.time_elapsed}s</span>
+            </div>
+          </div>
         </div>
 
-      </section>
+        {/* Tab View: OVERVIEW */}
+        {activeTab === "overview" && (
+          <div className="flex flex-col gap-6">
+            {/* Visualizer Row: Route Map + Real-Time Telemetry Curve */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+              {/* Left Column: Field SVG Route Map (5 cols) */}
+              <div className="lg:col-span-5 h-[520px]">
+                <RouteMapSVG
+                  route={route}
+                  vehicles={fleet}
+                  selectedVehicleId={selectedVehicleId}
+                  onSelectVehicle={setSelectedVehicleId}
+                />
+              </div>
 
+              {/* Right Column: Dynamic SVG Speed/Drift Chart & Digital Twin Panel (7 cols) */}
+              <div className="lg:col-span-7 flex flex-col gap-6">
+                <TelemetryChartSVG history={history} vehicleId={selectedVehicleId} />
+                <DigitalTwinPanel
+                  vehicle={activeVehicle}
+                  aiActive={aiActive}
+                  correctionMode={correctionMode}
+                  onToggleAi={toggleAiActive}
+                  onSetCorrectionMode={setCorrectionMode}
+                  onInjectDelay={handleInjectDelay}
+                  onReset={handleReset}
+                />
+              </div>
+            </div>
+
+            {/* Fleet Table Row */}
+            <FleetTable
+              vehicles={fleet}
+              selectedVehicleId={selectedVehicleId}
+              onSelectVehicle={setSelectedVehicleId}
+            />
+
+            {/* Benchmark Footer */}
+            <BenchmarkPanel
+              metrics={benchmark}
+              isConnected={isConnected}
+              simulationActive={simulationActive}
+              onToggleSimulation={() => setSimulationActive(!simulationActive)}
+            />
+          </div>
+        )}
+
+        {/* Tab View: ROUTE MAP FULLSCREEN */}
+        {activeTab === "map" && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 h-[680px]">
+              <RouteMapSVG
+                route={route}
+                vehicles={fleet}
+                selectedVehicleId={selectedVehicleId}
+                onSelectVehicle={setSelectedVehicleId}
+              />
+            </div>
+            <div className="flex flex-col gap-4">
+              <div className="bg-[#0b111d] rounded-2xl border border-white/10 p-5">
+                <h3 className="font-semibold text-white text-base mb-2">Serpentine Geometry Spec</h3>
+                <p className="text-xs text-slate-400 mb-4">
+                  Headland turning arcs conform strictly to Ospina & Noguchi (2025) Eqs. 1-7.
+                </p>
+                <div className="space-y-3 text-xs">
+                  <div className="flex justify-between py-2 border-b border-white/5">
+                    <span className="text-slate-400">Total Route Length:</span>
+                    <span className="font-mono text-cyan-400 font-bold">{route.total_distance.toFixed(2)} m</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-white/5">
+                    <span className="text-slate-400">Lane Count:</span>
+                    <span className="font-mono text-white font-bold">{route.num_lanes} straight lanes</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-white/5">
+                    <span className="text-slate-400">Lane Spacing (Row Width):</span>
+                    <span className="font-mono text-white font-bold">{route.lane_spacing} m</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-white/5">
+                    <span className="text-slate-400">Nominal Lane Velocity:</span>
+                    <span className="font-mono text-emerald-400 font-bold">1.50 m/s</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-white/5">
+                    <span className="text-slate-400">Nominal Turn Velocity:</span>
+                    <span className="font-mono text-amber-400 font-bold">0.80 m/s</span>
+                  </div>
+                  <div className="flex justify-between py-2">
+                    <span className="text-slate-400">Headland Arc Radius:</span>
+                    <span className="font-mono text-purple-400 font-bold">2.50 m</span>
+                  </div>
+                </div>
+              </div>
+
+              <DigitalTwinPanel
+                vehicle={activeVehicle}
+                aiActive={aiActive}
+                correctionMode={correctionMode}
+                onToggleAi={toggleAiActive}
+                onSetCorrectionMode={setCorrectionMode}
+                onInjectDelay={handleInjectDelay}
+                onReset={handleReset}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Tab View: FLEET UNITS */}
+        {activeTab === "fleet" && (
+          <div className="flex flex-col gap-6">
+            <FleetTable
+              vehicles={fleet}
+              selectedVehicleId={selectedVehicleId}
+              onSelectVehicle={setSelectedVehicleId}
+            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <DigitalTwinPanel
+                vehicle={activeVehicle}
+                aiActive={aiActive}
+                correctionMode={correctionMode}
+                onToggleAi={toggleAiActive}
+                onSetCorrectionMode={setCorrectionMode}
+                onInjectDelay={handleInjectDelay}
+                onReset={handleReset}
+              />
+              <TelemetryChartSVG history={history} vehicleId={selectedVehicleId} />
+            </div>
+          </div>
+        )}
+
+        {/* Tab View: DIGITAL TWIN */}
+        {activeTab === "twin" && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-7 flex flex-col gap-6">
+              <DigitalTwinPanel
+                vehicle={activeVehicle}
+                aiActive={aiActive}
+                correctionMode={correctionMode}
+                onToggleAi={toggleAiActive}
+                onSetCorrectionMode={setCorrectionMode}
+                onInjectDelay={handleInjectDelay}
+                onReset={handleReset}
+              />
+              <TelemetryChartSVG history={history} vehicleId={selectedVehicleId} />
+            </div>
+            <div className="lg:col-span-5 h-[560px]">
+              <RouteMapSVG
+                route={route}
+                vehicles={fleet}
+                selectedVehicleId={selectedVehicleId}
+                onSelectVehicle={setSelectedVehicleId}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Tab View: BENCHMARK */}
+        {activeTab === "analytics" && (
+          <div className="flex flex-col gap-6">
+            <BenchmarkPanel
+              metrics={benchmark}
+              isConnected={isConnected}
+              simulationActive={simulationActive}
+              onToggleSimulation={() => setSimulationActive(!simulationActive)}
+            />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <TelemetryChartSVG history={history} vehicleId={selectedVehicleId} />
+              <div className="bg-[#0a0f1d] rounded-2xl border border-white/10 p-5 flex flex-col justify-between">
+                <div>
+                  <h3 className="text-base font-semibold text-white mb-1">Architecture & Model Details</h3>
+                  <p className="text-xs text-slate-400 mb-4">
+                    Edge closed loop execution pipeline: telemetry in &gt; twin forward lookahead &gt; RF speed regression &gt; trajectory differential steering &gt; immediate feedback.
+                  </p>
+                  <div className="space-y-2 text-xs font-mono">
+                    <div className="p-3 bg-[#060a14] rounded-xl border border-white/5 flex justify-between">
+                      <span className="text-slate-400">Primary ML Model:</span>
+                      <span className="text-cyan-400 font-bold">RandomForestRegressor (scikit-learn)</span>
+                    </div>
+                    <div className="p-3 bg-[#060a14] rounded-xl border border-white/5 flex justify-between">
+                      <span className="text-slate-400">Lookahead Horizon:</span>
+                      <span className="text-emerald-400 font-bold">3.0 seconds forward simulation</span>
+                    </div>
+                    <div className="p-3 bg-[#060a14] rounded-xl border border-white/5 flex justify-between">
+                      <span className="text-slate-400">WebSocket Transport:</span>
+                      <span className="text-purple-400 font-bold">FastAPI asyncio connection manager</span>
+                    </div>
+                    <div className="p-3 bg-[#060a14] rounded-xl border border-white/5 flex justify-between">
+                      <span className="text-slate-400">Database Mode:</span>
+                      <span className="text-amber-400 font-bold">In-Memory Twins (Scoped to connection)</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-4 border-t border-white/5 flex justify-between items-center text-xs text-slate-400">
+                  <span>Target Tick Frequency: 10 Hz (100ms)</span>
+                  <span className="text-emerald-400 font-semibold">Latency SLA &lt; 5.0ms</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </main>
-  );
-}
-
-
-/* ---------------- Components ---------------- */
-
-function NavItem({
-  name,
-  icon,
-  active = false,
-}: {
-  name: string;
-  icon: string;
-  active?: boolean;
-}) {
-  return (
-    <div
-      className={`flex items-center gap-3 px-4 py-3 rounded-xl
-        cursor-pointer transition
-        ${
-          active
-            ? "bg-blue-600/10 text-blue-400"
-            : "text-gray-400 hover:bg-white/5 hover:text-white"
-        }`}
-    >
-      <span>{icon}</span>
-
-      <span className="text-sm font-medium">
-        {name}
-      </span>
-    </div>
-  );
-}
-
-
-function StatCard({
-  title,
-  value,
-  unit,
-  change,
-  icon,
-}: {
-  title: string;
-  value: string;
-  unit: string;
-  change: string;
-  icon: string;
-}) {
-  return (
-    <div className="bg-[#0b111d]
-                    border border-white/10
-                    rounded-2xl p-5">
-
-      <div className="flex justify-between">
-
-        <div>
-          <p className="text-sm text-gray-500">
-            {title}
-          </p>
-
-          <div className="flex items-baseline gap-2 mt-3">
-            <span className="text-2xl font-bold">
-              {value}
-            </span>
-
-            <span className="text-sm text-gray-500">
-              {unit}
-            </span>
-          </div>
-        </div>
-
-        <div className="w-10 h-10 rounded-xl
-                        bg-blue-500/10
-                        flex items-center justify-center">
-          {icon}
-        </div>
-
-      </div>
-
-      <p className="text-xs text-gray-500 mt-4">
-        {change}
-      </p>
-
-    </div>
-  );
-}
-
-
-function Vehicle({
-  name,
-  id,
-  status,
-  speed,
-}: {
-  name: string;
-  id: string;
-  status: string;
-  speed: string;
-}) {
-  const active = status === "Active";
-
-  return (
-    <div className="flex items-center justify-between
-                    py-4 border-b border-white/5 last:border-0">
-
-      <div className="flex items-center gap-3">
-
-        <div className="w-10 h-10 rounded-xl
-                        bg-white/5
-                        flex items-center justify-center">
-          🚜
-        </div>
-
-        <div>
-          <p className="text-sm font-medium">
-            {name}
-          </p>
-
-          <p className="text-xs text-gray-500">
-            {id}
-          </p>
-        </div>
-
-      </div>
-
-      <div className="text-right">
-
-        <div className="flex items-center gap-2">
-          <span
-            className={`w-2 h-2 rounded-full ${
-              active ? "bg-green-500" : "bg-gray-500"
-            }`}
-          />
-
-          <span
-            className={`text-xs ${
-              active ? "text-green-400" : "text-gray-500"
-            }`}
-          >
-            {status}
-          </span>
-        </div>
-
-        <p className="text-xs text-gray-500 mt-1">
-          {speed}
-        </p>
-
-      </div>
-
-    </div>
   );
 }
