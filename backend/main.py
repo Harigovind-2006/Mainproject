@@ -12,9 +12,11 @@ from auth import (
     get_password_hash, authenticate_user, create_access_token,
     get_current_user, verify_ws_token, verify_vehicle_secret
 )
+from pydantic import BaseModel
 from connection_manager import manager
 from route_model import default_route
 from speed_correction import speed_engine
+from fleet_simulator import fleet_simulator
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,9 +42,17 @@ async def lifespan(app: FastAPI):
         })
         logger.info("Default operator account created: username='admin', password='admin123'")
 
+    # Initialize default digital twins
+    manager.ensure_default_twins()
+
+    # Start integrated background autonomous fleet simulation
+    if settings.ENABLE_FLEET_SIMULATOR:
+        fleet_simulator.start()
+
     yield
     # Shutdown
     logger.info("Shutting down backend...")
+    fleet_simulator.stop()
     await close_db()
 
 app = FastAPI(
@@ -142,10 +152,50 @@ async def get_fleet_status():
         "total_distance": default_route.total_distance
     }
 
+class InjectDelayRequest(BaseModel):
+    vehicle_id: str
+    seconds: float = 5.0
+
+class SetModeRequest(BaseModel):
+    mode: str  # "model", "fixed", "off"
+
 @app.post("/api/fleet/reset")
 async def reset_fleet():
-    manager.twins.clear()
+    fleet_simulator.reset()
+    await manager.reset_fleet_twins()
     return {"message": "Fleet state reset successfully"}
+
+@app.post("/api/fleet/inject-delay")
+async def inject_delay_endpoint(req: InjectDelayRequest):
+    twin_data = await manager.inject_delay_to_twin(req.vehicle_id, req.seconds)
+    if not twin_data:
+        raise HTTPException(status_code=404, detail=f"Vehicle '{req.vehicle_id}' not found")
+    fleet_simulator.inject_delay(req.vehicle_id, req.seconds)
+    return {"status": "ok", "vehicle": twin_data}
+
+@app.post("/api/fleet/mode")
+async def set_mode_endpoint(req: SetModeRequest):
+    fleet_simulator.set_mode(req.mode)
+    return {"status": "ok", "mode": fleet_simulator.mode}
+
+@app.get("/api/simulation/status")
+async def simulation_status():
+    return {
+        "running": fleet_simulator.is_running,
+        "mode": fleet_simulator.mode,
+        "rover_count": len(fleet_simulator.rovers),
+        "update_interval": fleet_simulator.update_interval
+    }
+
+@app.post("/api/simulation/start")
+async def simulation_start():
+    fleet_simulator.start()
+    return {"status": "started", "running": fleet_simulator.is_running}
+
+@app.post("/api/simulation/stop")
+async def simulation_stop():
+    fleet_simulator.stop()
+    return {"status": "stopped", "running": fleet_simulator.is_running}
 
 @app.get("/api/benchmark/metrics")
 async def get_metrics():
@@ -199,12 +249,24 @@ async def websocket_dashboard_endpoint(
     await manager.connect_dashboard(websocket)
     try:
         while True:
-            # Dashboards can send control events (e.g. reset, route change)
+            # Dashboards can send control events (e.g. reset, inject delay, mode switch)
             msg = await websocket.receive_json()
             action = msg.get("action")
             if action == "RESET_FLEET":
-                manager.twins.clear()
-                await manager.broadcast_fleet_status()
+                fleet_simulator.reset()
+                await manager.reset_fleet_twins()
+            elif action == "INJECT_DELAY":
+                vehicle_id = msg.get("vehicle_id", "rover-alpha")
+                seconds = float(msg.get("seconds", 5.0))
+                fleet_simulator.inject_delay(vehicle_id, seconds)
+            elif action == "SET_MODE":
+                new_mode = msg.get("mode", "model")
+                fleet_simulator.set_mode(new_mode)
+            elif action == "TOGGLE_SIMULATION":
+                if fleet_simulator.is_running:
+                    fleet_simulator.stop()
+                else:
+                    fleet_simulator.start()
             elif action == "PING":
                 await websocket.send_json({"type": "PONG", "timestamp": msg.get("timestamp")})
     except WebSocketDisconnect:

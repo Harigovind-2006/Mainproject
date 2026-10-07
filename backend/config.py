@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     FIXED_STEP_SIZE: float = 0.1
     LOOKAHEAD_SECONDS: float = 3.0
 
+    # Integrated Fleet Simulator Defaults
+    ENABLE_FLEET_SIMULATOR: bool = True
+    SIMULATOR_UPDATE_INTERVAL: float = 0.2  # 5 Hz update rate
+
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),
         env_file_encoding="utf-8",

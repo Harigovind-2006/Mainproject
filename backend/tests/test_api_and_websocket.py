@@ -89,3 +89,42 @@ def test_vehicle_websocket_telemetry_flow():
         assert "delta_T" in response
         assert "lookahead_validated" in response
         assert response["target_speed"] > 0
+
+def test_fleet_control_endpoints():
+    # Simulation status
+    r_stat = client.get("/api/simulation/status")
+    assert r_stat.status_code == 200
+    stat_data = r_stat.json()
+    assert "running" in stat_data
+    assert "rover_count" in stat_data
+
+    # Set mode
+    r_mode = client.post("/api/fleet/mode", json={"mode": "fixed"})
+    assert r_mode.status_code == 200
+    assert r_mode.json()["status"] == "ok"
+
+    # Inject delay
+    r_delay = client.post("/api/fleet/inject-delay", json={"vehicle_id": "rover-alpha", "seconds": 3.5})
+    assert r_delay.status_code == 200
+    d_data = r_delay.json()
+    assert d_data["status"] == "ok"
+    assert "vehicle" in d_data
+
+    # Fleet reset
+    r_reset = client.post("/api/fleet/reset")
+    assert r_reset.status_code == 200
+    assert "reset successfully" in r_reset.json()["message"]
+
+def test_dashboard_websocket_flow():
+    with client.websocket_connect("/ws/dashboard") as ws:
+        # Receive INITIAL_STATE
+        init_msg = ws.receive_json()
+        assert init_msg["type"] == "INITIAL_STATE"
+        assert "fleet" in init_msg
+        assert "route" in init_msg
+
+        # Send PING
+        ws.send_json({"action": "PING", "timestamp": 12345})
+        pong_msg = ws.receive_json()
+        assert pong_msg["type"] == "PONG"
+        assert pong_msg["timestamp"] == 12345

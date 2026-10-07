@@ -45,6 +45,7 @@ class ConnectionManager:
     async def connect_dashboard(self, websocket: WebSocket):
         await websocket.accept()
         self.dashboard_connections.add(websocket)
+        self.ensure_default_twins()
         logger.info(f"Dashboard connected. Total dashboards: {len(self.dashboard_connections)}")
         # Send initial full fleet state
         await websocket.send_json({
@@ -108,6 +109,9 @@ class ConnectionManager:
         # Update twin's active targets
         twin.target_speed = target_speed
         twin.steering_adjust = steering_adjust
+        twin.wheel_speeds = {"left": v_left, "right": v_right}
+        if "battery_level" in data:
+            twin.battery_level = float(data["battery_level"])
 
         t_end = time.perf_counter()
         latency_ms = (t_end - t_start) * 1000.0
@@ -169,6 +173,42 @@ class ConnectionManager:
                 stale.add(ws)
         for s in stale:
             self.dashboard_connections.discard(s)
+
+    def ensure_default_twins(self):
+        """Initializes default digital twins if none exist yet."""
+        if not self.twins:
+            defaults = [
+                ("rover-alpha", 0.0),
+                ("rover-beta", 35.0),
+                ("rover-gamma", 85.0),
+            ]
+            for v_id, s_init in defaults:
+                twin = VehicleTwin(vehicle_id=v_id, route=default_route)
+                twin.reset(initial_s=s_init)
+                self.twins[v_id] = twin
+
+    async def reset_fleet_twins(self):
+        """Resets all active twins to the starting configuration and broadcasts."""
+        if not self.twins:
+            self.ensure_default_twins()
+        else:
+            for i, (v_id, twin) in enumerate(self.twins.items()):
+                init_s = (i * 35.0) % default_route.total_distance
+                twin.reset(initial_s=init_s)
+        await self.broadcast_fleet_status()
+
+    async def inject_delay_to_twin(self, vehicle_id: str, seconds: float) -> Optional[Dict[str, Any]]:
+        """Artificially offsets time_elapsed for a vehicle twin and broadcasts the update."""
+        if not self.twins:
+            self.ensure_default_twins()
+        twin = self.twins.get(vehicle_id)
+        if not twin:
+            twin = VehicleTwin(vehicle_id=vehicle_id, route=default_route)
+            self.twins[vehicle_id] = twin
+        twin.inject_delay(seconds)
+        twin_data = twin.to_dict()
+        await self.broadcast_vehicle_update(twin_data)
+        return twin_data
 
     def get_benchmark_metrics(self) -> Dict[str, Any]:
         uptime = max(0.001, time.time() - self.start_benchmark_time)

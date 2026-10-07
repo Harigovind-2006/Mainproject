@@ -22,6 +22,8 @@ class VehicleTwin:
         self.target_speed: float = self.route.planned_lane_speed
         self.steering_adjust: float = 0.0
         self.cross_track_error: float = 0.0
+        self.wheel_speeds: Dict[str, float] = {"left": 0.0, "right": 0.0}
+        self.battery_level: float = 98.5
 
         # Timing
         self.created_at: float = time.time()
@@ -68,6 +70,10 @@ class VehicleTwin:
         self.current_segment_id = seg_id
         self.cross_track_error = signed_cte
 
+        # Compute heading along route trajectory
+        _, _, route_heading = self.route.get_coordinates_at_distance(s_proj)
+        self.heading = route_heading
+
         # Compute progress and delta_T
         prog = compute_progress(
             distance_covered=self.distance_covered,
@@ -93,6 +99,64 @@ class VehicleTwin:
         self._evaluate_past_predictions(now, prog.delta_T)
 
         return prog
+
+    def reset(self, initial_s: float = 0.0):
+        """Resets twin state back to the specified route distance."""
+        now = time.time()
+        self.start_time = now
+        self.last_update_time = now
+        self.time_elapsed = 0.0
+        self.distance_covered = initial_s
+        self.actual_speed = self.route.planned_lane_speed
+        self.target_speed = self.route.planned_lane_speed
+        self.steering_adjust = 0.0
+        self.cross_track_error = 0.0
+        self.wheel_speeds = {"left": self.actual_speed, "right": self.actual_speed}
+
+        rx, ry, rh = self.route.get_coordinates_at_distance(initial_s)
+        self.x = rx
+        self.y = ry
+        self.heading = rh
+
+        seg = self.route.get_segment_at_distance(initial_s)
+        self.current_segment_id = seg.id
+        self.in_turn = (seg.type == "turn")
+
+        prog = compute_progress(
+            distance_covered=initial_s,
+            actual_speed=self.actual_speed,
+            time_elapsed=0.0,
+            route=self.route
+        )
+        self.delta_T = 0.0
+        self.percent_complete = prog.percent_complete
+        self.eta_total_time = self.route.total_plan_time
+        self.time_remaining = prog.time_remaining
+        self.ideal_speed = self.route.planned_lane_speed
+        self.schedule_status = "ON_SCHEDULE"
+        self.delta_T_history = [0.0]
+        self.recent_predictions.clear()
+
+    def inject_delay(self, seconds: float):
+        """Artificially offsets time_elapsed to simulate vehicle stalling or delay."""
+        self.time_elapsed += seconds
+        if self.start_time is not None:
+            self.start_time -= seconds
+
+        prog = compute_progress(
+            distance_covered=self.distance_covered,
+            actual_speed=self.actual_speed,
+            time_elapsed=self.time_elapsed,
+            route=self.route
+        )
+        self.delta_T = prog.delta_T
+        self.time_remaining = prog.time_remaining
+        self.eta_total_time = prog.eta_total_time
+        self.ideal_speed = prog.ideal_speed
+        self.schedule_status = prog.schedule_status
+        self.delta_T_history.append(prog.delta_T)
+        if len(self.delta_T_history) > 50:
+            self.delta_T_history.pop(0)
 
     def get_lag_features(self) -> Tuple[float, float, float]:
         """
@@ -177,5 +241,10 @@ class VehicleTwin:
             "schedule_status": self.schedule_status,
             "current_segment_id": self.current_segment_id,
             "in_turn": self.in_turn,
-            "last_update_time": self.last_update_time
+            "last_update_time": self.last_update_time,
+            "battery_level": round(self.battery_level, 1),
+            "wheel_speeds": {
+                "left": round(self.wheel_speeds.get("left", 0.0), 3),
+                "right": round(self.wheel_speeds.get("right", 0.0), 3)
+            }
         }

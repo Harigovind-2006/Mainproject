@@ -159,9 +159,9 @@ export function useFleetStore() {
     };
   }, [appendHistory]);
 
-  // Client Simulation Engine (runs when simulationActive is true AND WebSocket is not feeding real live updates, or user overrides)
+  // Client Simulation Engine (runs when simulationActive is true AND WebSocket is not connected)
   useEffect(() => {
-    if (!simulationActive) return;
+    if (!simulationActive || isConnected) return;
 
     const interval = setInterval(() => {
       setFleet((currentFleet) => {
@@ -299,6 +299,9 @@ export function useFleetStore() {
   };
 
   const injectDelay = (vehicleId: string, seconds: number) => {
+    if (wsRef.current && isConnected) {
+      wsRef.current.send(JSON.stringify({ action: "INJECT_DELAY", vehicle_id: vehicleId, seconds }));
+    }
     setFleet((prev) =>
       prev.map((v) => {
         if (v.vehicle_id === vehicleId) {
@@ -315,8 +318,31 @@ export function useFleetStore() {
     );
   };
 
+  const handleSetCorrectionMode = (mode: "model" | "baseline" | "manual") => {
+    setCorrectionMode(mode);
+    if (wsRef.current && isConnected) {
+      wsRef.current.send(JSON.stringify({ action: "SET_MODE", mode }));
+    }
+  };
+
+  const handleSetSimulationActive = (active: boolean | ((prev: boolean) => boolean)) => {
+    setSimulationActive((prev) => {
+      const nextVal = typeof active === "function" ? active(prev) : active;
+      if (wsRef.current && isConnected) {
+        wsRef.current.send(JSON.stringify({ action: "TOGGLE_SIMULATION", active: nextVal }));
+      }
+      return nextVal;
+    });
+  };
+
   const toggleAiActive = () => {
-    setAiActive((prev) => !prev);
+    setAiActive((prev) => {
+      const nextVal = !prev;
+      if (wsRef.current && isConnected) {
+        wsRef.current.send(JSON.stringify({ action: "SET_MODE", mode: nextVal ? "model" : "off" }));
+      }
+      return nextVal;
+    });
   };
 
   return {
@@ -329,9 +355,9 @@ export function useFleetStore() {
     aiActive,
     toggleAiActive,
     correctionMode,
-    setCorrectionMode,
+    setCorrectionMode: handleSetCorrectionMode,
     simulationActive,
-    setSimulationActive,
+    setSimulationActive: handleSetSimulationActive,
     history: history[selectedVehicleId] || [],
     benchmark,
     resetFleet,
