@@ -6,15 +6,15 @@ import { BenchmarkMetrics } from "@/lib/types";
 interface BenchmarkPanelProps {
   metrics: BenchmarkMetrics;
   isConnected: boolean;
-  simulationActive: boolean;
-  onToggleSimulation: () => void;
+  simulationActive?: boolean;
+  isRoverStreaming?: boolean;
+  onToggleSimulation?: () => void;
 }
 
 export default function BenchmarkPanel({
   metrics,
   isConnected,
-  simulationActive,
-  onToggleSimulation,
+  isRoverStreaming = false,
 }: BenchmarkPanelProps) {
   const formatUptime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -36,18 +36,31 @@ export default function BenchmarkPanel({
           </p>
         </div>
 
-        {/* Simulation toggle button */}
-        <button
-          onClick={onToggleSimulation}
+        {/* Live Simulation status indicator */}
+        <div
           className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition flex items-center gap-2 ${
-            simulationActive
-              ? "bg-purple-500/10 text-purple-300 border-purple-500/30"
-              : "bg-white/5 text-slate-400 border-white/10 hover:text-white"
+            isRoverStreaming
+              ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+              : isConnected
+              ? "bg-cyan-500/10 text-cyan-300 border-cyan-500/20"
+              : "bg-white/5 text-slate-400 border-white/10"
           }`}
         >
-          <span className={`w-2 h-2 rounded-full ${simulationActive ? "bg-purple-400 animate-pulse" : "bg-slate-500"}`} />
-          {simulationActive ? "Field Simulator Running" : "Simulator Paused"}
-        </button>
+          <span
+            className={`w-2 h-2 rounded-full ${
+              isRoverStreaming
+                ? "bg-emerald-400 animate-pulse"
+                : isConnected
+                ? "bg-cyan-400"
+                : "bg-slate-500"
+            }`}
+          />
+          {isRoverStreaming
+            ? "Live Simulation Streaming (10 Hz)"
+            : isConnected
+            ? "Waiting for simulate_rover.py"
+            : "Backend Offline"}
+        </div>
       </div>
 
       {/* Benchmark Metric Cards */}

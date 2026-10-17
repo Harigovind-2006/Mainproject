@@ -17,6 +17,7 @@ export default function DashboardPage() {
     setSelectedVehicleId,
     activeVehicle,
     isConnected,
+    isRoverStreaming,
     aiActive,
     toggleAiActive,
     correctionMode,
@@ -63,6 +64,7 @@ export default function DashboardPage() {
       {/* Top Navigation */}
       <Navbar
         isConnected={isConnected}
+        isRoverStreaming={isRoverStreaming}
         activeVehicleId={selectedVehicleId}
         vehicleIds={vehicleIds}
         onSelectVehicle={setSelectedVehicleId}
@@ -259,8 +261,7 @@ export default function DashboardPage() {
             <BenchmarkPanel
               metrics={benchmark}
               isConnected={isConnected}
-              simulationActive={simulationActive}
-              onToggleSimulation={() => setSimulationActive(!simulationActive)}
+              isRoverStreaming={isRoverStreaming}
             />
           </div>
         )}
