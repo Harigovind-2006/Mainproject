@@ -108,6 +108,7 @@ class ConnectionManager:
         # Update twin's active targets
         twin.target_speed = target_speed
         twin.steering_adjust = steering_adjust
+        twin.wheel_speeds = {"left": round(v_left, 2), "right": round(v_right, 2)}
 
         t_end = time.perf_counter()
         latency_ms = (t_end - t_start) * 1000.0

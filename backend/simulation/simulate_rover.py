@@ -259,49 +259,30 @@ async def run_simulated_rover(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Phase 1 Autonomous Rover Hardware Simulator")
-    parser.add_argument("--vehicle-id", type=str, default="rover-alpha", help="Vehicle ID (e.g. rover-alpha)")
-    parser.add_argument("--fleet", type=str, default=None, help="Comma-separated list of vehicle IDs to simulate concurrently (e.g. 'rover-alpha,rover-beta,rover-gamma')")
+    parser = argparse.ArgumentParser(description="Phase 1 Autonomous Single Rover Hardware Simulator")
+    parser.add_argument("--vehicle-id", type=str, default="rover-alpha", help="Vehicle ID (default: rover-alpha)")
     parser.add_argument("--url", type=str, default="ws://127.0.0.1:8000/ws/vehicle", help="Backend WebSocket URL")
     parser.add_argument("--hz", type=float, default=10.0, help="Telemetry broadcast frequency in Hz (default: 10.0)")
     parser.add_argument("--noise", type=float, default=0.08, help="Wheel slip noise standard deviation (default: 0.08)")
     parser.add_argument("--mode", type=str, default="model", choices=["model", "baseline", "off"], help="Correction mode")
     parser.add_argument("--loop", action="store_true", help="Loop the route continuously")
-    parser.add_argument("--inject-delay", type=float, default=10.0, help="Time in seconds to inject artificial delay")
-    parser.add_argument("--delay-duration", type=float, default=3.0, help="Duration of delay in seconds")
+    parser.add_argument("--inject-delay", type=float, default=10.0, help="Time in seconds to inject artificial delay (default: 10.0s)")
+    parser.add_argument("--delay-duration", type=float, default=3.0, help="Duration of delay in seconds (default: 3.0s)")
 
     args = parser.parse_args()
 
-    if args.fleet:
-        vehicle_ids = [v.strip() for v in args.fleet.split(",") if v.strip()]
-        print(f"Launching concurrent fleet simulation for: {vehicle_ids}")
-        tasks = [
-            run_simulated_rover(
-                vehicle_id=vid,
-                server_ws_url=args.url,
-                tick_rate_hz=args.hz,
-                noise_std=args.noise,
-                mode=args.mode,
-                loop_forever=args.loop,
-                inject_delay_at_sec=args.inject_delay if idx == 0 else None,
-                inject_delay_duration=args.delay_duration
-            )
-            for idx, vid in enumerate(vehicle_ids)
-        ]
-        asyncio.run(asyncio.gather(*tasks))
-    else:
-        asyncio.run(
-            run_simulated_rover(
-                vehicle_id=args.vehicle_id,
-                server_ws_url=args.url,
-                tick_rate_hz=args.hz,
-                noise_std=args.noise,
-                mode=args.mode,
-                loop_forever=args.loop,
-                inject_delay_at_sec=args.inject_delay,
-                inject_delay_duration=args.delay_duration
-            )
+    asyncio.run(
+        run_simulated_rover(
+            vehicle_id=args.vehicle_id,
+            server_ws_url=args.url,
+            tick_rate_hz=args.hz,
+            noise_std=args.noise,
+            mode=args.mode,
+            loop_forever=args.loop,
+            inject_delay_at_sec=args.inject_delay,
+            inject_delay_duration=args.delay_duration
         )
+    )
 
 if __name__ == "__main__":
     main()

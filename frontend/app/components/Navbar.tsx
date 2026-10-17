@@ -5,6 +5,7 @@ import { useState } from "react";
 
 interface NavbarProps {
   isConnected?: boolean;
+  isRoverStreaming?: boolean;
   activeVehicleId?: string;
   vehicleIds?: string[];
   onSelectVehicle?: (id: string) => void;
@@ -16,8 +17,9 @@ interface NavbarProps {
 
 export default function Navbar({
   isConnected = false,
+  isRoverStreaming = false,
   activeVehicleId = "rover-alpha",
-  vehicleIds = ["rover-alpha", "rover-beta", "tractor-gamma"],
+  vehicleIds = ["rover-alpha"],
   onSelectVehicle,
   simulationActive = true,
   onToggleSimulation,
@@ -98,17 +100,19 @@ export default function Navbar({
             {/* Connection Status Badge */}
             <div
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-mono ${
-                isConnected
+                isRoverStreaming
                   ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-400"
-                  : "bg-cyan-500/10 border-cyan-500/25 text-cyan-300"
+                  : isConnected
+                  ? "bg-cyan-500/10 border-cyan-500/25 text-cyan-300"
+                  : "bg-white/5 border-white/10 text-slate-400"
               }`}
             >
               <span
                 className={`w-2 h-2 rounded-full ${
-                  isConnected ? "bg-emerald-400 animate-pulse" : "bg-cyan-400 animate-ping"
+                  isRoverStreaming ? "bg-emerald-400 animate-pulse" : isConnected ? "bg-cyan-400" : "bg-slate-500"
                 }`}
               />
-              <span>{isConnected ? "WS Live" : "Simulator Active"}</span>
+              <span>{isRoverStreaming ? "Live Simulation (10Hz)" : isConnected ? "Backend Connected" : "Offline"}</span>
             </div>
 
             {/* Operator Profile */}

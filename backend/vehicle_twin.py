@@ -22,6 +22,8 @@ class VehicleTwin:
         self.target_speed: float = self.route.planned_lane_speed
         self.steering_adjust: float = 0.0
         self.cross_track_error: float = 0.0
+        self.wheel_speeds: Dict[str, float] = {"left": 0.0, "right": 0.0}
+        self.battery_level: int = 98
 
         # Timing
         self.created_at: float = time.time()
@@ -177,5 +179,7 @@ class VehicleTwin:
             "schedule_status": self.schedule_status,
             "current_segment_id": self.current_segment_id,
             "in_turn": self.in_turn,
+            "wheel_speeds": self.wheel_speeds,
+            "battery_level": self.battery_level,
             "last_update_time": self.last_update_time
         }

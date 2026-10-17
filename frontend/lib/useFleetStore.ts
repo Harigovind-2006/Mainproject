@@ -19,26 +19,28 @@ export function useFleetStore() {
   const [fleet, setFleet] = useState<VehicleTelemetry[]>(initialVehicles);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>("rover-alpha");
   const [isConnected, setIsConnected] = useState<boolean>(false);
+  const [isRoverStreaming, setIsRoverStreaming] = useState<boolean>(false);
   const [aiActive, setAiActive] = useState<boolean>(true);
   const [correctionMode, setCorrectionMode] = useState<"model" | "baseline" | "manual">("model");
   const [simulationActive, setSimulationActive] = useState<boolean>(true);
   const [history, setHistory] = useState<Record<string, TelemetryPoint[]>>({});
   const [benchmark, setBenchmark] = useState<BenchmarkMetrics>({
-    total_messages: 1420,
-    uptime_seconds: 310,
-    messages_per_sec: 14.5,
-    avg_latency_ms: 2.14,
-    connected_vehicles: 3,
-    connected_dashboards: 1,
+    total_messages: 0,
+    uptime_seconds: 0,
+    messages_per_sec: 0,
+    avg_latency_ms: 0,
+    connected_vehicles: 0,
+    connected_dashboards: 0,
   });
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastPacketTimeRef = useRef<number>(0);
 
   // Active vehicle helper
   const activeVehicle = fleet.find((v) => v.vehicle_id === selectedVehicleId) || fleet[0] || initialVehicles[0];
 
-  // Helper to append telemetry history
+  // Helper to append real live telemetry history
   const appendHistory = useCallback((veh: VehicleTelemetry) => {
     const now = new Date();
     const timeLabel = `${now.getMinutes().toString().padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
@@ -52,40 +54,71 @@ export function useFleetStore() {
       cross_track_error: veh.cross_track_error,
     };
 
+    lastPacketTimeRef.current = Date.now();
+    setIsRoverStreaming(true);
+
     setHistory((prev) => {
       const list = prev[veh.vehicle_id] || [];
       const updated = [...list, point];
-      if (updated.length > 40) updated.shift();
+      // Keep up to 60 live points for the chart
+      if (updated.length > 60) updated.shift();
       return { ...prev, [veh.vehicle_id]: updated };
     });
   }, []);
 
-  // Initialize history with mock data
+  // Fetch initial route and fleet status from REST backend on mount
   useEffect(() => {
-    const initialHist: Record<string, TelemetryPoint[]> = {};
-    fleet.forEach((v) => {
-      const points: TelemetryPoint[] = [];
-      const baseTime = Date.now() - 30 * 1000;
-      for (let i = 0; i < 20; i++) {
-        const d = new Date(baseTime + i * 1500);
-        const tStr = `${d.getMinutes().toString().padStart(2, "0")}:${d.getSeconds().toString().padStart(2, "0")}`;
-        const jitter = (Math.sin(i * 0.5) * 0.15);
-        points.push({
-          time: tStr,
-          timestamp: baseTime + i * 1500,
-          actual_speed: Number((v.actual_speed + jitter).toFixed(2)),
-          target_speed: v.target_speed,
-          ideal_speed: v.ideal_speed,
-          delta_T: Number((v.delta_T + jitter * 1.5).toFixed(2)),
-          cross_track_error: Number((v.cross_track_error + jitter * 0.2).toFixed(3)),
-        });
-      }
-      initialHist[v.vehicle_id] = points;
-    });
-    setHistory(initialHist);
+    fetch("http://localhost:8000/api/fleet/route")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.segments) setRoute(data);
+      })
+      .catch(() => {});
+
+    fetch("http://localhost:8000/api/fleet/status")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.fleet && data.fleet.length > 0) {
+          setFleet(data.fleet);
+        }
+      })
+      .catch(() => {});
   }, []);
 
-  // WebSocket Connection
+  // Poll real benchmark metrics from backend
+  useEffect(() => {
+    let unmounted = false;
+    const fetchBenchmark = async () => {
+      try {
+        const res = await fetch("http://localhost:8000/api/benchmark/metrics");
+        if (res.ok) {
+          const data = await res.json();
+          if (!unmounted) setBenchmark(data);
+        }
+      } catch (err) {
+        // Backend not reachable
+      }
+    };
+
+    fetchBenchmark();
+    const interval = setInterval(fetchBenchmark, 1000);
+    return () => {
+      unmounted = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Track whether simulation is actively streaming packets
+  useEffect(() => {
+    const checkActivity = setInterval(() => {
+      if (Date.now() - lastPacketTimeRef.current > 3000) {
+        setIsRoverStreaming(false);
+      }
+    }, 1500);
+    return () => clearInterval(checkActivity);
+  }, []);
+
+  // Real-time WebSocket connection to backend
   useEffect(() => {
     let unmounted = false;
 
@@ -98,7 +131,7 @@ export function useFleetStore() {
         ws.onopen = () => {
           if (unmounted) return;
           setIsConnected(true);
-          console.log("[Fleet Tracker] Connected to backend WebSocket");
+          console.log("[AgriTrack] Connected to backend live WebSocket");
         };
 
         ws.onmessage = (event) => {
@@ -123,7 +156,7 @@ export function useFleetStore() {
                   next[idx] = updated;
                   return next;
                 }
-                return [...prev, updated];
+                return [updated];
               });
               appendHistory(updated);
             }
@@ -135,8 +168,8 @@ export function useFleetStore() {
         ws.onclose = () => {
           if (unmounted) return;
           setIsConnected(false);
-          // Try reconnect after 3 seconds
-          reconnectTimeoutRef.current = setTimeout(connectWebSocket, 3000);
+          setIsRoverStreaming(false);
+          reconnectTimeoutRef.current = setTimeout(connectWebSocket, 2000);
         };
 
         ws.onerror = () => {
@@ -146,7 +179,7 @@ export function useFleetStore() {
         };
       } catch (err) {
         setIsConnected(false);
-        reconnectTimeoutRef.current = setTimeout(connectWebSocket, 4000);
+        reconnectTimeoutRef.current = setTimeout(connectWebSocket, 3000);
       }
     };
 
@@ -159,143 +192,17 @@ export function useFleetStore() {
     };
   }, [appendHistory]);
 
-  // Client Simulation Engine (runs when simulationActive is true AND WebSocket is not feeding real live updates, or user overrides)
-  useEffect(() => {
-    if (!simulationActive) return;
-
-    const interval = setInterval(() => {
-      setFleet((currentFleet) => {
-        return currentFleet.map((vehicle) => {
-          // Advance vehicle along serpentine route
-          const stepSeconds = 1.0;
-          const nominalLaneSpeed = 1.5;
-          const nominalTurnSpeed = 0.8;
-
-          // Determine current segment
-          const curSegment = route.segments.find((s) => s.id === vehicle.current_segment_id) || route.segments[0];
-          const isTurn = curSegment.type === "turn";
-          const plannedSpeed = isTurn ? nominalTurnSpeed : nominalLaneSpeed;
-
-          // Target speed adjusted by AI control if enabled
-          let target = vehicle.target_speed;
-          if (aiActive) {
-            if (correctionMode === "model") {
-              // Drift compensation: if behind (delta_T > 0), increase speed; if ahead, decrease
-              const compensation = vehicle.delta_T * 0.12;
-              target = Math.max(0.6, Math.min(2.4, plannedSpeed + compensation));
-            } else if (correctionMode === "baseline") {
-              target = vehicle.delta_T > 0.5 ? plannedSpeed + 0.2 : vehicle.delta_T < -0.5 ? plannedSpeed - 0.2 : plannedSpeed;
-            }
-          } else {
-            target = plannedSpeed;
-          }
-
-          // Inertia towards target speed
-          const actualSpeed = Number((vehicle.actual_speed + (target - vehicle.actual_speed) * 0.25).toFixed(2));
-          const newDist = vehicle.distance_covered + actualSpeed * stepSeconds;
-
-          // Check if distance has wrapped or finished
-          const boundedDist = newDist > route.total_distance ? 0.0 : newDist;
-          const nextSegment = route.segments.find((s) => boundedDist >= s.start_s && boundedDist <= s.end_s) || route.segments[0];
-
-          // Compute coordinates (x, y) along segment
-          let nextX = vehicle.x;
-          let nextY = vehicle.y;
-          let heading = vehicle.heading;
-          const segRatio = (boundedDist - nextSegment.start_s) / Math.max(0.001, nextSegment.length);
-
-          if (nextSegment.type === "lane") {
-            nextX = nextSegment.start_point[0] + (nextSegment.end_point[0] - nextSegment.start_point[0]) * segRatio;
-            nextY = nextSegment.start_point[1] + (nextSegment.end_point[1] - nextSegment.start_point[1]) * segRatio;
-            heading = nextSegment.end_point[1] >= nextSegment.start_point[1] ? Math.PI / 2 : -Math.PI / 2;
-          } else if (nextSegment.center && nextSegment.radius) {
-            const startAngle = nextSegment.start_angle ?? Math.PI;
-            const angle = nextSegment.clockwise ? startAngle - segRatio * Math.PI : startAngle + segRatio * Math.PI;
-            nextX = nextSegment.center[0] + nextSegment.radius * Math.cos(angle);
-            nextY = nextSegment.center[1] + nextSegment.radius * Math.sin(angle);
-            heading = nextSegment.clockwise ? angle - Math.PI / 2 : angle + Math.PI / 2;
-          }
-
-          // Schedule drift delta_T update
-          const nominalTimeForDist = boundedDist / (plannedSpeed || 1.5);
-          const timeElapsed = vehicle.time_elapsed + stepSeconds;
-          let delta_T = Number((timeElapsed - nominalTimeForDist).toFixed(2));
-          if (boundedDist === 0.0) delta_T = 0.0;
-
-          // Schedule status
-          const schedule_status = delta_T > 2.0 ? "BEHIND" : delta_T < -2.0 ? "AHEAD" : "ON_SCHEDULE";
-
-          // Cross track error noise
-          const crossTrack = Number(((Math.sin(timeElapsed * 0.4) * 0.08)).toFixed(3));
-          const steeringAdjust = Number((-crossTrack * 0.45).toFixed(3));
-
-          // Differential wheel speeds
-          const wheelBase = 0.6;
-          const vLeft = Number((actualSpeed - (steeringAdjust * wheelBase) / 2).toFixed(2));
-          const vRight = Number((actualSpeed + (steeringAdjust * wheelBase) / 2).toFixed(2));
-
-          const percentComplete = Number(((boundedDist / route.total_distance) * 100).toFixed(1));
-          const timeRemaining = Math.max(0, Math.round((route.total_distance - boundedDist) / Math.max(0.5, actualSpeed)));
-
-          const updated: VehicleTelemetry = {
-            ...vehicle,
-            x: Number(nextX.toFixed(2)),
-            y: Number(nextY.toFixed(2)),
-            heading: Number(heading.toFixed(3)),
-            actual_speed: actualSpeed,
-            target_speed: Number(target.toFixed(2)),
-            steering_adjust: steeringAdjust,
-            cross_track_error: crossTrack,
-            distance_covered: Number(boundedDist.toFixed(1)),
-            distance_remaining: Number((route.total_distance - boundedDist).toFixed(1)),
-            percent_complete: percentComplete,
-            time_elapsed: Math.round(timeElapsed),
-            time_remaining: timeRemaining,
-            eta_total_time: Math.round(timeElapsed + timeRemaining),
-            delta_T: delta_T,
-            delta_T_lags: [delta_T, vehicle.delta_T_lags[0], vehicle.delta_T_lags[1]],
-            schedule_status,
-            current_segment_id: nextSegment.id,
-            in_turn: nextSegment.type === "turn",
-            last_update_time: Date.now() / 1000,
-            wheel_speeds: { left: vLeft, right: vRight },
-          };
-
-          return updated;
-        });
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [simulationActive, route, aiActive, correctionMode]);
-
-  // Keep history updated during simulation
-  useEffect(() => {
-    if (activeVehicle) {
-      appendHistory(activeVehicle);
-    }
-  }, [activeVehicle, appendHistory]);
-
-  // Benchmark stats updater
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setBenchmark((prev) => ({
-        ...prev,
-        total_messages: prev.total_messages + (isConnected ? 10 : 3),
-        uptime_seconds: prev.uptime_seconds + 2,
-        messages_per_sec: Number((12 + Math.random() * 4).toFixed(1)),
-        avg_latency_ms: Number((1.8 + Math.random() * 0.6).toFixed(2)),
-      }));
-    }, 2000);
-    return () => clearInterval(timer);
-  }, [isConnected]);
-
   // Action methods
-  const resetFleet = () => {
+  const resetFleet = async () => {
+    try {
+      await fetch("http://localhost:8000/api/fleet/reset", { method: "POST" });
+    } catch (e) {}
+
     if (wsRef.current && isConnected) {
       wsRef.current.send(JSON.stringify({ action: "RESET_FLEET" }));
     }
     setFleet(initialVehicles);
+    setHistory({});
   };
 
   const injectDelay = (vehicleId: string, seconds: number) => {
@@ -326,6 +233,7 @@ export function useFleetStore() {
     setSelectedVehicleId,
     activeVehicle,
     isConnected,
+    isRoverStreaming,
     aiActive,
     toggleAiActive,
     correctionMode,

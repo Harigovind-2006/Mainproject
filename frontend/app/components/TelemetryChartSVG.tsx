@@ -312,6 +312,13 @@ export default function TelemetryChartSVG({ history, vehicleId }: TelemetryChart
             )}
           </div>
         )}
+
+        {points.length === 0 && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0a0f1d]/75 backdrop-blur-[2px] rounded-xl border border-white/5">
+            <span className="text-xs font-mono text-cyan-400">Waiting for live simulation telemetry stream...</span>
+            <span className="text-[10px] text-slate-500 mt-1 font-mono">Run: python simulate_rover.py</span>
+          </div>
+        )}
       </div>
 
       {/* Legend & Stats Footer */}
