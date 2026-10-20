@@ -56,22 +56,31 @@ class VehicleTwin:
     ) -> ProgressResult:
         now = timestamp or time.time()
         if self.start_time is None:
-            self.start_time = now
+            nominal_elapsed = self.route.total_plan_time - self.route.remaining_time_estimate(self.distance_covered, self.route.planned_lane_speed)
+            self.start_time = now - max(0.0, nominal_elapsed)
 
-        self.time_elapsed = max(0.0, now - self.start_time)
+        # Project 2D coordinates to route distance s and signed cross-track error
+        seg_id, s_proj, signed_cte = self.route.project_point_to_route(x, y, self.current_segment_id)
+
+        # Detect wrap-around when completing a lap (transition from route end back to start)
+        if self.distance_covered > (self.route.total_distance - 25.0) and s_proj < 25.0:
+            self.start_time = now
+            self.time_elapsed = 0.0
+            self.current_segment_id = 0
+            self.distance_covered = s_proj
+        else:
+            self.time_elapsed = max(0.0, now - self.start_time)
+            self.distance_covered = s_proj
+            self.current_segment_id = seg_id
+
         self.last_update_time = now
         self.actual_speed = max(0.0, speed)
         self.x = x
         self.y = y
-
-        # Project 2D coordinates to route distance s and signed cross-track error
-        seg_id, s_proj, signed_cte = self.route.project_point_to_route(x, y, self.current_segment_id)
-        self.distance_covered = s_proj
-        self.current_segment_id = seg_id
         self.cross_track_error = signed_cte
 
         # Compute heading along route trajectory
-        _, _, route_heading = self.route.get_coordinates_at_distance(s_proj)
+        _, _, route_heading = self.route.get_coordinates_at_distance(self.distance_covered)
         self.heading = route_heading
 
         # Compute progress and delta_T
@@ -103,9 +112,10 @@ class VehicleTwin:
     def reset(self, initial_s: float = 0.0):
         """Resets twin state back to the specified route distance."""
         now = time.time()
-        self.start_time = now
+        nominal_elapsed = self.route.total_plan_time - self.route.remaining_time_estimate(initial_s, self.route.planned_lane_speed)
+        self.start_time = now - max(0.0, nominal_elapsed)
         self.last_update_time = now
-        self.time_elapsed = 0.0
+        self.time_elapsed = max(0.0, nominal_elapsed)
         self.distance_covered = initial_s
         self.actual_speed = self.route.planned_lane_speed
         self.target_speed = self.route.planned_lane_speed
@@ -125,16 +135,16 @@ class VehicleTwin:
         prog = compute_progress(
             distance_covered=initial_s,
             actual_speed=self.actual_speed,
-            time_elapsed=0.0,
+            time_elapsed=self.time_elapsed,
             route=self.route
         )
-        self.delta_T = 0.0
+        self.delta_T = prog.delta_T
         self.percent_complete = prog.percent_complete
-        self.eta_total_time = self.route.total_plan_time
+        self.eta_total_time = prog.eta_total_time
         self.time_remaining = prog.time_remaining
-        self.ideal_speed = self.route.planned_lane_speed
-        self.schedule_status = "ON_SCHEDULE"
-        self.delta_T_history = [0.0]
+        self.ideal_speed = prog.ideal_speed
+        self.schedule_status = prog.schedule_status
+        self.delta_T_history = [prog.delta_T]
         self.recent_predictions.clear()
 
     def inject_delay(self, seconds: float):

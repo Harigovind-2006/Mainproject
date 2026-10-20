@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { RouteData, VehicleTelemetry } from "@/lib/types";
 
 interface RouteMapSVGProps {
-  route: RouteData;
+  route: RouteData | null;
   vehicles: VehicleTelemetry[];
   selectedVehicleId: string;
   onSelectVehicle: (id: string) => void;
@@ -37,7 +37,8 @@ export default function RouteMapSVG({
   // SVG y is inverted (y=0 at top, while in field y=0 is bottom)
   const scaleY = (y: number) => svgHeight - paddingY - ((y - minY) / (maxY - minY)) * (svgHeight - 2 * paddingY);
 
-  const selectedVehicle = vehicles.find((v) => v.vehicle_id === selectedVehicleId) || vehicles[0];
+  const selectedVehicle =
+    vehicles.find((v) => v.vehicle_id === selectedVehicleId) || vehicles[0] || null;
 
   return (
     <div className="relative w-full h-full bg-[#0a0f1d] rounded-2xl border border-white/10 p-5 flex flex-col overflow-hidden">
@@ -45,11 +46,13 @@ export default function RouteMapSVG({
       <div className="flex items-center justify-between mb-3 z-10">
         <div>
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
+            <span className={`w-2.5 h-2.5 rounded-full ${route ? "bg-cyan-400 animate-pulse" : "bg-slate-500"}`} />
             <h3 className="font-semibold text-white text-base">Serpentine Field Layout</h3>
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
-            4-Lane Path • {route.total_distance.toFixed(1)}m Total • 5m Spacing
+            {route
+              ? `${route.num_lanes}-Lane Path • ${route.total_distance.toFixed(1)}m Total • ${route.lane_spacing}m Spacing`
+              : "Loading field route geometry from backend..."}
           </p>
         </div>
 
@@ -112,7 +115,7 @@ export default function RouteMapSVG({
           />
 
           {/* Render Route Segments */}
-          {route.segments.map((seg) => {
+          {route && route.segments && route.segments.map((seg) => {
             const isSegActive = selectedVehicle && selectedVehicle.current_segment_id === seg.id;
             const strokeColor = isSegActive ? "#06b6d4" : "rgba(148, 163, 184, 0.25)";
             const strokeWidth = isSegActive ? 3.5 : 2;
@@ -148,104 +151,99 @@ export default function RouteMapSVG({
                   )}
                 </g>
               );
-            } else if (seg.center && seg.radius) {
-              // Semicircular Turn
+            }
+
+            if (seg.type === "turn" && seg.center && seg.radius) {
               const cx = scaleX(seg.center[0]);
               const cy = scaleY(seg.center[1]);
-              const rx = (scaleX(seg.center[0] + seg.radius) - cx);
-              const ry = Math.abs(scaleY(seg.center[1] + seg.radius) - cy);
+              const rxPx = ((seg.radius / (maxX - minX)) * (svgWidth - 2 * paddingX));
+              const ryPx = ((seg.radius / (maxY - minY)) * (svgHeight - 2 * paddingY));
 
-              const x1 = scaleX(seg.start_point[0]);
-              const y1 = scaleY(seg.start_point[1]);
-              const x2 = scaleX(seg.end_point[0]);
-              const y2 = scaleY(seg.end_point[1]);
+              // Headland Arc
+              const startX = scaleX(seg.start_point[0]);
+              const startY = scaleY(seg.start_point[1]);
+              const endX = scaleX(seg.end_point[0]);
+              const endY = scaleY(seg.end_point[1]);
 
-              // SVG Arc: A rx ry x-axis-rotation large-arc-flag sweep-flag x y
-              // In SVG screen coords, y is flipped, so adjust sweep flag accordingly
-              const sweepFlag = seg.clockwise ? 1 : 1;
-              const pathD = `M ${x1} ${y1} A ${rx} ${ry} 0 0 ${sweepFlag} ${x2} ${y2}`;
+              // Top headland turn (y > 25) curves outside top (sweep=0); Bottom turn curves outside bottom (sweep=1)
+              const sweep = seg.center[1] > 25 ? 0 : 1;
+              const d = `M ${startX} ${startY} A ${rxPx} ${ryPx} 0 0 ${sweep} ${endX} ${endY}`;
 
               return (
                 <g key={`turn-${seg.id}`}>
                   <path
-                    d={pathD}
+                    d={d}
                     fill="none"
-                    stroke={strokeColor}
+                    stroke={isSegActive ? "#a855f7" : "rgba(168, 85, 247, 0.35)"}
                     strokeWidth={strokeWidth}
-                    strokeDasharray={isSegActive ? undefined : "4 4"}
+                    strokeDasharray={isSegActive ? undefined : "4 3"}
                     filter={isSegActive ? "url(#cyanGlow)" : undefined}
                   />
                   {showLabels && (
-                    <circle cx={cx} cy={cy} r="2" fill="rgba(148, 163, 184, 0.3)" />
+                    <text
+                      x={cx}
+                      y={seg.center[1] > 25 ? cy - 12 : cy + 18}
+                      textAnchor="middle"
+                      fill="rgba(168, 85, 247, 0.6)"
+                      fontSize="8"
+                      fontFamily="monospace"
+                    >
+                      Turn {seg.id}
+                    </text>
                   )}
                 </g>
               );
             }
+
             return null;
           })}
-
-          {/* Start and Finish markers */}
-          <g transform={`translate(${scaleX(0)}, ${scaleY(0)})`}>
-            <circle r="7" fill="rgba(16, 185, 129, 0.2)" stroke="#10b981" strokeWidth="2" />
-            <circle r="3" fill="#10b981" />
-            {showLabels && (
-              <text x="12" y="4" fill="#10b981" fontSize="10" fontWeight="bold">
-                START
-              </text>
-            )}
-          </g>
-
-          <g transform={`translate(${scaleX(15)}, ${scaleY(0)})`}>
-            <circle r="7" fill="rgba(239, 68, 68, 0.2)" stroke="#ef4444" strokeWidth="2" />
-            <circle r="3" fill="#ef4444" />
-            {showLabels && (
-              <text x="12" y="4" fill="#ef4444" fontSize="10" fontWeight="bold">
-                END
-              </text>
-            )}
-          </g>
 
           {/* Render Vehicles */}
           {vehicles.map((veh) => {
             const isSel = veh.vehicle_id === selectedVehicleId;
             const vx = scaleX(veh.x);
             const vy = scaleY(veh.y);
+            // heading in field: 0 = East, pi/2 = North.
+            // SVG coordinate rotation angle in degrees:
             const angleDeg = -(veh.heading * 180) / Math.PI + 90;
 
             const markerColor = isSel
-              ? "#06b6d4" // Cyan
-              : veh.schedule_status === "BEHIND"
-              ? "#f59e0b" // Amber
-              : "#10b981"; // Emerald
+              ? "#38bdf8"
+              : veh.schedule_status === "ON_SCHEDULE"
+              ? "#10b981"
+              : veh.schedule_status === "AHEAD"
+              ? "#06b6d4"
+              : "#f59e0b";
 
             return (
               <g
                 key={veh.vehicle_id}
                 onClick={() => onSelectVehicle(veh.vehicle_id)}
-                className="cursor-pointer transition-transform duration-300"
+                className="cursor-pointer transition-transform duration-200"
               >
-                {/* Outer ping animation for selected */}
+                {/* Ping Radar Rings for selected rover */}
                 {isSel && (
                   <circle
                     cx={vx}
                     cy={vy}
                     r="18"
                     fill="none"
-                    stroke="#06b6d4"
+                    stroke="#38bdf8"
                     strokeWidth="1.5"
                     opacity="0.4"
                     className="animate-ping"
                   />
                 )}
 
-                {/* Vehicle shadow ring */}
+                {/* Rover Body Outer Halo */}
                 <circle
                   cx={vx}
                   cy={vy}
-                  r={isSel ? 14 : 10}
-                  fill={isSel ? "rgba(6, 182, 212, 0.2)" : "rgba(255, 255, 255, 0.08)"}
+                  r={isSel ? "12" : "9"}
+                  fill={isSel ? "rgba(56, 189, 248, 0.25)" : "rgba(255,255,255,0.1)"}
                   stroke={markerColor}
-                  strokeWidth={isSel ? 2.5 : 1.5}
+                  strokeWidth={isSel ? "2.5" : "1.5"}
+                  filter={isSel ? "url(#cyanGlow)" : undefined}
                 />
 
                 {/* Direction Pointer Arrow */}
@@ -294,18 +292,25 @@ export default function RouteMapSVG({
         </div>
 
         {/* Selected Vehicle Legend overlay */}
-        <div className="absolute top-3 right-3 bg-[#0b111d]/90 backdrop-blur-md px-3 py-2 rounded-xl border border-white/10 text-xs text-slate-300">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">
-            Active Target
+        {selectedVehicle ? (
+          <div className="absolute top-3 right-3 bg-[#0b111d]/90 backdrop-blur-md px-3 py-2 rounded-xl border border-white/10 text-xs text-slate-300">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">
+              Active Target
+            </div>
+            <div className="flex items-center gap-2 font-mono font-medium text-white">
+              <span className="w-2 h-2 rounded-full bg-cyan-400" />
+              {selectedVehicle.vehicle_id}
+            </div>
+            <div className="text-[10px] text-slate-400 mt-1">
+              ({selectedVehicle.x.toFixed(1)}m, {selectedVehicle.y.toFixed(1)}m) •{" "}
+              {selectedVehicle.in_turn ? "Turning Arc" : "Straight Lane"}
+            </div>
           </div>
-          <div className="flex items-center gap-2 font-mono font-medium text-white">
-            <span className="w-2 h-2 rounded-full bg-cyan-400" />
-            {selectedVehicle?.vehicle_id}
+        ) : (
+          <div className="absolute top-3 right-3 bg-[#0b111d]/90 backdrop-blur-md px-3 py-2 rounded-xl border border-white/10 text-xs text-slate-400">
+            <span>Waiting for active telemetry feed...</span>
           </div>
-          <div className="text-[10px] text-slate-400 mt-1">
-            ({selectedVehicle?.x.toFixed(1)}m, {selectedVehicle?.y.toFixed(1)}m) • {selectedVehicle?.in_turn ? "Turning Arc" : "Straight Lane"}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

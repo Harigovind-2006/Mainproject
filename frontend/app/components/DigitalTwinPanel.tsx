@@ -4,7 +4,7 @@ import React from "react";
 import { VehicleTelemetry } from "@/lib/types";
 
 interface DigitalTwinPanelProps {
-  vehicle: VehicleTelemetry;
+  vehicle: VehicleTelemetry | null;
   aiActive: boolean;
   correctionMode: "model" | "baseline" | "manual";
   onToggleAi: () => void;
@@ -22,6 +22,30 @@ export default function DigitalTwinPanel({
   onInjectDelay,
   onReset,
 }: DigitalTwinPanelProps) {
+  if (!vehicle) {
+    return (
+      <div className="bg-[#0a0f1d] rounded-2xl border border-white/10 p-6 flex flex-col items-center justify-center min-h-[300px] text-center gap-3">
+        <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-xl text-cyan-400 animate-pulse">
+          ◈
+        </div>
+        <div>
+          <h4 className="text-white font-semibold text-sm">Awaiting Digital Twin Telemetry</h4>
+          <p className="text-xs text-slate-400 mt-1 max-w-sm">
+            No autonomous unit reporting telemetry yet. When the backend fleet simulation or physical rover connects, live kinematic twins will automatically render here.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 mt-2">
+          <button
+            onClick={onReset}
+            className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-medium text-slate-300 hover:bg-white/10 transition"
+          >
+            Check Backend / Reset
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // Cross-track bar scale (-0.5m to +0.5m)
   const crossTrack = vehicle.cross_track_error || 0;
   const crossTrackPercent = Math.max(0, Math.min(100, 50 + (crossTrack / 0.5) * 50));
@@ -35,7 +59,7 @@ export default function DigitalTwinPanel({
       <div className="flex items-center justify-between pb-3 border-b border-white/5">
         <div>
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
             <h3 className="font-semibold text-white text-base">Digital Twin Telemetry</h3>
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
@@ -147,7 +171,7 @@ export default function DigitalTwinPanel({
             </div>
           </div>
           <div className="text-[10px] text-slate-400 font-mono text-right">
-            <div>s + {vehicle.target_speed * 3}m</div>
+            <div>s + {(vehicle.target_speed * 3).toFixed(1)}m</div>
             <div className="text-cyan-400">Stable</div>
           </div>
         </div>
@@ -174,11 +198,11 @@ export default function DigitalTwinPanel({
           <div className="text-[10px] text-slate-400 uppercase tracking-wider">Model Lag Features</div>
           <div className="font-mono text-xs text-slate-300 mt-1 flex items-center gap-2">
             <span>[</span>
-            <span className="text-cyan-400">{vehicle.delta_T_lags[0]?.toFixed(1) ?? "0.0"}</span>
+            <span className="text-cyan-400">{vehicle.delta_T_lags?.[0]?.toFixed(1) ?? "0.0"}</span>
             <span>,</span>
-            <span className="text-purple-400">{vehicle.delta_T_lags[1]?.toFixed(1) ?? "0.0"}</span>
+            <span className="text-purple-400">{vehicle.delta_T_lags?.[1]?.toFixed(1) ?? "0.0"}</span>
             <span>,</span>
-            <span className="text-amber-400">{vehicle.delta_T_lags[2]?.toFixed(1) ?? "0.0"}</span>
+            <span className="text-amber-400">{vehicle.delta_T_lags?.[2]?.toFixed(1) ?? "0.0"}</span>
             <span>]</span>
           </div>
         </div>

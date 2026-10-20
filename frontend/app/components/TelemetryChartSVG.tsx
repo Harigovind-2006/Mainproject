@@ -114,6 +114,12 @@ export default function TelemetryChartSVG({ history, vehicleId }: TelemetryChart
 
       {/* SVG Plot */}
       <div className="relative w-full h-[220px]">
+        {points.length === 0 && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#060a14]/60 backdrop-blur-xs rounded-xl z-10 pointer-events-none">
+            <span className="text-xs text-slate-400 font-mono">Awaiting Real-Time Telemetry Packets</span>
+            <span className="text-[10px] text-slate-500 mt-1">Live speed &amp; drift curves will render as packets arrive</span>
+          </div>
+        )}
         <svg
           viewBox={`0 0 ${svgWidth} ${svgHeight}`}
           className="w-full h-full overflow-visible"

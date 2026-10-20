@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { RouteData, VehicleTelemetry, BenchmarkMetrics, WebSocketMessage } from "./types";
-import { initialRoute, initialVehicles } from "./mockData";
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws/dashboard";
 
 export interface TelemetryPoint {
   time: string;
@@ -15,9 +17,9 @@ export interface TelemetryPoint {
 }
 
 export function useFleetStore() {
-  const [route, setRoute] = useState<RouteData>(initialRoute);
-  const [fleet, setFleet] = useState<VehicleTelemetry[]>(initialVehicles);
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string>("rover-alpha");
+  const [route, setRoute] = useState<RouteData | null>(null);
+  const [fleet, setFleet] = useState<VehicleTelemetry[]>([]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string>("");
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isRoverStreaming, setIsRoverStreaming] = useState<boolean>(false);
   const [aiActive, setAiActive] = useState<boolean>(true);
@@ -37,16 +39,36 @@ export function useFleetStore() {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastPacketTimeRef = useRef<number>(0);
 
-  // Active vehicle helper
-  const activeVehicle = fleet.find((v) => v.vehicle_id === selectedVehicleId) || fleet[0] || initialVehicles[0];
+  // Active vehicle helper (defaults to selected, or first in live fleet, or null if fleet empty)
+  const activeVehicle: VehicleTelemetry | null =
+    fleet.find((v) => v.vehicle_id === selectedVehicleId) || fleet[0] || null;
 
-  // Helper to append real live telemetry history
+  // Auto-select first vehicle ID when fleet populates if none selected
+  useEffect(() => {
+    if (fleet.length > 0) {
+      if (!selectedVehicleId || !fleet.some((v) => v.vehicle_id === selectedVehicleId)) {
+        setSelectedVehicleId(fleet[0].vehicle_id);
+      }
+    }
+  }, [fleet, selectedVehicleId]);
+
+  const lastHistoryTimeRef = useRef<Record<string, number>>({});
+
+  // Helper to append real live telemetry history with smooth throttling
   const appendHistory = useCallback((veh: VehicleTelemetry) => {
+    const nowMs = Date.now();
+    lastPacketTimeRef.current = nowMs;
+    setIsRoverStreaming(true);
+
+    const lastTime = lastHistoryTimeRef.current[veh.vehicle_id] || 0;
+    if (nowMs - lastTime < 400) return;
+    lastHistoryTimeRef.current[veh.vehicle_id] = nowMs;
+
     const now = new Date();
     const timeLabel = `${now.getMinutes().toString().padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
     const point: TelemetryPoint = {
       time: timeLabel,
-      timestamp: Date.now(),
+      timestamp: nowMs,
       actual_speed: veh.actual_speed,
       target_speed: veh.target_speed,
       ideal_speed: veh.ideal_speed,
@@ -54,49 +76,69 @@ export function useFleetStore() {
       cross_track_error: veh.cross_track_error,
     };
 
-    lastPacketTimeRef.current = Date.now();
-    setIsRoverStreaming(true);
-
     setHistory((prev) => {
       const list = prev[veh.vehicle_id] || [];
       const updated = [...list, point];
-      // Keep up to 60 live points for the chart
       if (updated.length > 60) updated.shift();
       return { ...prev, [veh.vehicle_id]: updated };
     });
   }, []);
 
-  // Fetch initial route and fleet status from REST backend on mount
-  useEffect(() => {
-    fetch("http://localhost:8000/api/fleet/route")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data && data.segments) setRoute(data);
-      })
-      .catch(() => {});
-
-    fetch("http://localhost:8000/api/fleet/status")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data && data.fleet && data.fleet.length > 0) {
-          setFleet(data.fleet);
+  // Fetch initial route, fleet status, and simulation status from REST backend on mount
+  const refreshBackendState = useCallback(async () => {
+    try {
+      const routeRes = await fetch(`${API_BASE_URL}/api/fleet/route`);
+      if (routeRes.ok) {
+        const routeData = await routeRes.json();
+        if (routeData && routeData.segments) {
+          setRoute(routeData);
         }
-      })
-      .catch(() => {});
+      }
+    } catch {
+      // Backend not yet reachable
+    }
+
+    try {
+      const statusRes = await fetch(`${API_BASE_URL}/api/fleet/status`);
+      if (statusRes.ok) {
+        const statusData = await statusRes.json();
+        if (statusData && Array.isArray(statusData.fleet)) {
+          setFleet(statusData.fleet);
+        }
+      }
+    } catch {
+      // Backend not yet reachable
+    }
+
+    try {
+      const simRes = await fetch(`${API_BASE_URL}/api/simulation/status`);
+      if (simRes.ok) {
+        const simData = await simRes.json();
+        if (typeof simData.running === "boolean") {
+          setSimulationActive(simData.running);
+        }
+      }
+    } catch {
+      // Backend not yet reachable
+    }
   }, []);
+
+  useEffect(() => {
+    refreshBackendState();
+  }, [refreshBackendState]);
 
   // Poll real benchmark metrics from backend
   useEffect(() => {
     let unmounted = false;
     const fetchBenchmark = async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/benchmark/metrics");
+        const res = await fetch(`${API_BASE_URL}/api/benchmark/metrics`);
         if (res.ok) {
           const data = await res.json();
           if (!unmounted) setBenchmark(data);
         }
-      } catch (err) {
-        // Backend not reachable
+      } catch {
+        // Backend offline
       }
     };
 
@@ -123,9 +165,8 @@ export function useFleetStore() {
     let unmounted = false;
 
     const connectWebSocket = () => {
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws/dashboard";
       try {
-        const ws = new WebSocket(wsUrl);
+        const ws = new WebSocket(WS_BASE_URL);
         wsRef.current = ws;
 
         ws.onopen = () => {
@@ -140,11 +181,11 @@ export function useFleetStore() {
             const data: WebSocketMessage = JSON.parse(event.data);
             if (data.type === "INITIAL_STATE") {
               if (data.route) setRoute(data.route);
-              if (data.fleet && data.fleet.length > 0) {
+              if (data.fleet && Array.isArray(data.fleet)) {
                 setFleet(data.fleet);
                 data.fleet.forEach(appendHistory);
               }
-            } else if (data.type === "FLEET_STATUS" && data.fleet) {
+            } else if (data.type === "FLEET_STATUS" && Array.isArray(data.fleet)) {
               setFleet(data.fleet);
               data.fleet.forEach(appendHistory);
             } else if (data.type === "VEHICLE_UPDATE" && data.vehicle) {
@@ -156,7 +197,7 @@ export function useFleetStore() {
                   next[idx] = updated;
                   return next;
                 }
-                return [updated];
+                return [...prev, updated];
               });
               appendHistory(updated);
             }
@@ -177,7 +218,7 @@ export function useFleetStore() {
           setIsConnected(false);
           ws.close();
         };
-      } catch (err) {
+      } catch {
         setIsConnected(false);
         reconnectTimeoutRef.current = setTimeout(connectWebSocket, 3000);
       }
@@ -195,58 +236,72 @@ export function useFleetStore() {
   // Action methods
   const resetFleet = async () => {
     try {
-      await fetch("http://localhost:8000/api/fleet/reset", { method: "POST" });
-    } catch (e) {}
+      await fetch(`${API_BASE_URL}/api/fleet/reset`, { method: "POST" });
+    } catch {}
 
     if (wsRef.current && isConnected) {
       wsRef.current.send(JSON.stringify({ action: "RESET_FLEET" }));
     }
-    setFleet(initialVehicles);
     setHistory({});
+    // Fetch refreshed real state from backend instead of dummy data
+    await refreshBackendState();
   };
 
-  const injectDelay = (vehicleId: string, seconds: number) => {
+  const injectDelay = async (vehicleId: string, seconds: number) => {
+    try {
+      await fetch(`${API_BASE_URL}/api/fleet/inject-delay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vehicle_id: vehicleId, seconds }),
+      });
+    } catch {}
+
     if (wsRef.current && isConnected) {
       wsRef.current.send(JSON.stringify({ action: "INJECT_DELAY", vehicle_id: vehicleId, seconds }));
     }
-    setFleet((prev) =>
-      prev.map((v) => {
-        if (v.vehicle_id === vehicleId) {
-          const newDeltaT = Number((v.delta_T + seconds).toFixed(2));
-          return {
-            ...v,
-            delta_T: newDeltaT,
-            time_elapsed: v.time_elapsed + seconds,
-            schedule_status: newDeltaT > 2.0 ? "BEHIND" : "ON_SCHEDULE",
-          };
-        }
-        return v;
-      })
-    );
   };
 
-  const handleSetCorrectionMode = (mode: "model" | "baseline" | "manual") => {
+  const handleSetCorrectionMode = async (mode: "model" | "baseline" | "manual") => {
     setCorrectionMode(mode);
+    try {
+      await fetch(`${API_BASE_URL}/api/fleet/mode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+    } catch {}
+
     if (wsRef.current && isConnected) {
       wsRef.current.send(JSON.stringify({ action: "SET_MODE", mode }));
     }
   };
 
-  const handleSetSimulationActive = (active: boolean | ((prev: boolean) => boolean)) => {
-    setSimulationActive((prev) => {
-      const nextVal = typeof active === "function" ? active(prev) : active;
-      if (wsRef.current && isConnected) {
-        wsRef.current.send(JSON.stringify({ action: "TOGGLE_SIMULATION", active: nextVal }));
-      }
-      return nextVal;
-    });
+  const handleSetSimulationActive = async (active: boolean | ((prev: boolean) => boolean)) => {
+    const nextVal = typeof active === "function" ? active(simulationActive) : active;
+    setSimulationActive(nextVal);
+
+    try {
+      const endpoint = nextVal ? "/api/simulation/start" : "/api/simulation/stop";
+      await fetch(`${API_BASE_URL}${endpoint}`, { method: "POST" });
+    } catch {}
+
+    if (wsRef.current && isConnected) {
+      wsRef.current.send(JSON.stringify({ action: "TOGGLE_SIMULATION", active: nextVal }));
+    }
   };
 
   const toggleAiActive = () => {
     setAiActive((prev) => {
       const nextVal = !prev;
+      const targetMode = nextVal ? "model" : "off";
+      fetch(`${API_BASE_URL}/api/fleet/mode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: targetMode }),
+      }).catch(() => {});
+
       if (wsRef.current && isConnected) {
-        wsRef.current.send(JSON.stringify({ action: "SET_MODE", mode: nextVal ? "model" : "off" }));
+        wsRef.current.send(JSON.stringify({ action: "SET_MODE", mode: targetMode }));
       }
       return nextVal;
     });
@@ -266,9 +321,10 @@ export function useFleetStore() {
     setCorrectionMode: handleSetCorrectionMode,
     simulationActive,
     setSimulationActive: handleSetSimulationActive,
-    history: history[selectedVehicleId] || [],
+    history: activeVehicle ? history[activeVehicle.vehicle_id] || [] : [],
     benchmark,
     resetFleet,
     injectDelay,
+    refreshBackendState,
   };
 }

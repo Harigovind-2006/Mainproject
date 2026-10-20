@@ -28,6 +28,7 @@ export default function DashboardPage() {
     benchmark,
     resetFleet,
     injectDelay,
+    refreshBackendState,
   } = useFleetStore();
 
   const [activeTab, setActiveTab] = useState<string>("overview");
@@ -39,25 +40,35 @@ export default function DashboardPage() {
   };
 
   const handleInjectDelay = (seconds: number) => {
-    injectDelay(selectedVehicleId, seconds);
+    if (!activeVehicle) {
+      showToast("No active vehicle selected.");
+      return;
+    }
+    injectDelay(activeVehicle.vehicle_id, seconds);
     showToast(
       seconds > 0
-        ? `Injected +${seconds}s schedule delay on ${selectedVehicleId}`
-        : `Applied pacing boost ${seconds}s on ${selectedVehicleId}`
+        ? `Injected +${seconds}s schedule delay on ${activeVehicle.vehicle_id}`
+        : `Applied pacing boost ${seconds}s on ${activeVehicle.vehicle_id}`
     );
   };
 
-  const handleReset = () => {
-    resetFleet();
+  const handleReset = async () => {
+    await resetFleet();
     showToast("Fleet digital twins and route progress reset.");
   };
 
   const vehicleIds = fleet.map((v) => v.vehicle_id);
 
-  // Compute fleet wide KPI averages
-  const avgSpeed = (fleet.reduce((acc, v) => acc + v.actual_speed, 0) / Math.max(1, fleet.length)).toFixed(2);
-  const avgDrift = (fleet.reduce((acc, v) => acc + v.delta_T, 0) / Math.max(1, fleet.length)).toFixed(2);
-  const avgProgress = (fleet.reduce((acc, v) => acc + v.percent_complete, 0) / Math.max(1, fleet.length)).toFixed(1);
+  // Compute fleet wide KPI averages safely
+  const avgSpeed = fleet.length > 0
+    ? (fleet.reduce((acc, v) => acc + (v.actual_speed || 0), 0) / fleet.length).toFixed(2)
+    : "--";
+  const avgDrift = fleet.length > 0
+    ? (fleet.reduce((acc, v) => acc + (v.delta_T || 0), 0) / fleet.length).toFixed(2)
+    : "--";
+  const avgProgress = fleet.length > 0
+    ? (fleet.reduce((acc, v) => acc + (v.percent_complete || 0), 0) / fleet.length).toFixed(1)
+    : "--";
 
   return (
     <main className="min-h-screen bg-[#070b14] text-white flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950">
@@ -84,11 +95,33 @@ export default function DashboardPage() {
 
       {/* Main Content Area */}
       <div className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 pt-24 pb-12 flex flex-col gap-6">
+        {/* Backend Connectivity Status Alert if disconnected */}
+        {!isConnected && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-300">
+            <div className="flex items-center gap-2.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+              <span>
+                <strong>Backend WebSocket Offline:</strong> Attempting reconnection to{" "}
+                <code className="bg-black/30 px-1.5 py-0.5 rounded font-mono text-amber-200">
+                  ws://localhost:8000/ws/dashboard
+                </code>
+                . Ensure the FastAPI backend server is running.
+              </span>
+            </div>
+            <button
+              onClick={() => refreshBackendState()}
+              className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 font-semibold self-start sm:self-auto transition"
+            >
+              Retry Connection
+            </button>
+          </div>
+        )}
+
         {/* Top Control Bar / Hero Banner */}
         <div className="bg-gradient-to-r from-[#0b111d] via-[#0d1627] to-[#0b111d] border border-white/10 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
           <div>
             <div className="flex items-center gap-2.5 mb-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
+              <span className={`w-2.5 h-2.5 rounded-full ${isRoverStreaming ? "bg-emerald-400 animate-pulse" : isConnected ? "bg-cyan-400" : "bg-slate-500"}`} />
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
                 Fleet Mission Control & Closed-Loop Correction
               </h1>
@@ -99,6 +132,19 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            {/* Simulation Status Pill */}
+            <button
+              onClick={() => setSimulationActive(!simulationActive)}
+              className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-2 transition ${
+                simulationActive
+                  ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/20"
+                  : "bg-slate-500/10 border-slate-500/30 text-slate-400 hover:bg-slate-500/20"
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${simulationActive ? "bg-cyan-400 animate-pulse" : "bg-slate-500"}`} />
+              <span>{simulationActive ? "Simulation ACTIVE" : "Simulation PAUSED"}</span>
+            </button>
+
             {/* AI Status Pill */}
             <div
               onClick={toggleAiActive}
@@ -132,15 +178,15 @@ export default function DashboardPage() {
             </div>
             <div className="my-2 flex items-baseline gap-2">
               <span className="text-3xl font-bold font-mono text-cyan-400">
-                {activeVehicle.actual_speed.toFixed(2)}
+                {activeVehicle ? activeVehicle.actual_speed.toFixed(2) : "--"}
               </span>
               <span className="text-xs text-slate-400 font-mono">
-                / {activeVehicle.target_speed.toFixed(2)} m/s
+                {activeVehicle ? `/ ${activeVehicle.target_speed.toFixed(2)} m/s` : "m/s"}
               </span>
             </div>
             <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-white/5 pt-2">
-              <span>Ideal: {activeVehicle.ideal_speed.toFixed(2)} m/s</span>
-              <span className="text-cyan-400 font-mono">{activeVehicle.vehicle_id}</span>
+              <span>Ideal: {activeVehicle ? `${activeVehicle.ideal_speed.toFixed(2)} m/s` : "--"}</span>
+              <span className="text-cyan-400 font-mono">{activeVehicle ? activeVehicle.vehicle_id : "No Unit"}</span>
             </div>
           </div>
 
@@ -151,24 +197,30 @@ export default function DashboardPage() {
               <span className="text-base">⏱</span>
             </div>
             <div className="my-2 flex items-baseline gap-2">
-              <span
-                className={`text-3xl font-bold font-mono ${
-                  activeVehicle.delta_T > 2
-                    ? "text-amber-400"
-                    : activeVehicle.delta_T < -1
-                    ? "text-cyan-400"
-                    : "text-emerald-400"
-                }`}
-              >
-                {activeVehicle.delta_T > 0 ? `+${activeVehicle.delta_T.toFixed(2)}` : activeVehicle.delta_T.toFixed(2)}s
-              </span>
-              <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-white/5 text-slate-300">
-                {activeVehicle.schedule_status.replace("_", " ")}
-              </span>
+              {activeVehicle ? (
+                <>
+                  <span
+                    className={`text-3xl font-bold font-mono ${
+                      activeVehicle.schedule_status === "BEHIND"
+                        ? "text-amber-400"
+                        : activeVehicle.schedule_status === "AHEAD"
+                        ? "text-cyan-400"
+                        : "text-emerald-400"
+                    }`}
+                  >
+                    {activeVehicle.delta_T > 0 ? `+${activeVehicle.delta_T.toFixed(2)}` : activeVehicle.delta_T.toFixed(2)}s
+                  </span>
+                  <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-white/5 text-slate-300">
+                    {activeVehicle.schedule_status.replace("_", " ")}
+                  </span>
+                </>
+              ) : (
+                <span className="text-3xl font-bold font-mono text-slate-500">--</span>
+              )}
             </div>
             <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-white/5 pt-2">
               <span>Fleet Avg Drift:</span>
-              <span className="text-white font-mono">{avgDrift}s</span>
+              <span className="text-white font-mono">{avgDrift !== "--" ? `${avgDrift}s` : "--"}</span>
             </div>
           </div>
 
@@ -181,22 +233,26 @@ export default function DashboardPage() {
             <div className="my-2">
               <div className="flex items-baseline justify-between mb-1.5">
                 <span className="text-3xl font-bold font-mono text-emerald-400">
-                  {activeVehicle.percent_complete.toFixed(1)}%
+                  {activeVehicle ? `${activeVehicle.percent_complete.toFixed(1)}%` : "--"}
                 </span>
                 <span className="text-xs text-slate-400 font-mono">
-                  {activeVehicle.distance_covered.toFixed(0)} / {route.total_distance.toFixed(0)}m
+                  {activeVehicle && route
+                    ? `${activeVehicle.distance_covered.toFixed(0)} / ${route.total_distance.toFixed(0)}m`
+                    : "--"}
                 </span>
               </div>
               <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-gradient-to-r from-emerald-500 to-cyan-400 rounded-full transition-all duration-300"
-                  style={{ width: `${Math.min(100, Math.max(0, activeVehicle.percent_complete))}%` }}
+                  style={{ width: `${activeVehicle ? Math.min(100, Math.max(0, activeVehicle.percent_complete)) : 0}%` }}
                 />
               </div>
             </div>
             <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-white/5 pt-2">
-              <span>Segment: #{activeVehicle.current_segment_id}</span>
-              <span className="text-emerald-400">{activeVehicle.in_turn ? "Turn Arc" : "Straight"}</span>
+              <span>Segment: {activeVehicle ? `#${activeVehicle.current_segment_id}` : "--"}</span>
+              <span className="text-emerald-400">
+                {activeVehicle ? (activeVehicle.in_turn ? "Turn Arc" : "Straight") : "Standby"}
+              </span>
             </div>
           </div>
 
@@ -207,15 +263,23 @@ export default function DashboardPage() {
               <span className="text-base">◈</span>
             </div>
             <div className="my-2 flex items-baseline gap-2">
-              <span className="text-3xl font-bold font-mono text-purple-400">
-                {Math.floor(activeVehicle.time_remaining / 60)}:
-                {(activeVehicle.time_remaining % 60).toString().padStart(2, "0")}
-              </span>
-              <span className="text-xs text-slate-400 font-mono">remaining</span>
+              {activeVehicle ? (
+                <>
+                  <span className="text-3xl font-bold font-mono text-purple-400">
+                    {Math.floor(activeVehicle.time_remaining / 60)}:
+                    {Math.floor(activeVehicle.time_remaining % 60).toString().padStart(2, "0")}
+                  </span>
+                  <span className="text-xs text-slate-400 font-mono">remaining</span>
+                </>
+              ) : (
+                <span className="text-3xl font-bold font-mono text-slate-500">--</span>
+              )}
             </div>
             <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-white/5 pt-2">
-              <span>Total Plan: {route.total_plan_time.toFixed(0)}s</span>
-              <span className="text-purple-300 font-mono">Elapsed: {activeVehicle.time_elapsed}s</span>
+              <span>Total Plan: {route ? `${route.total_plan_time.toFixed(0)}s` : "--"}</span>
+              <span className="text-purple-300 font-mono">
+                {activeVehicle ? `Elapsed: ${activeVehicle.time_elapsed.toFixed(0)}s` : "--"}
+              </span>
             </div>
           </div>
         </div>
@@ -237,7 +301,7 @@ export default function DashboardPage() {
 
               {/* Right Column: Dynamic SVG Speed/Drift Chart & Digital Twin Panel (7 cols) */}
               <div className="lg:col-span-7 flex flex-col gap-6">
-                <TelemetryChartSVG history={history} vehicleId={selectedVehicleId} />
+                <TelemetryChartSVG history={history} vehicleId={selectedVehicleId || "rover-alpha"} />
                 <DigitalTwinPanel
                   vehicle={activeVehicle}
                   aiActive={aiActive}
@@ -262,6 +326,8 @@ export default function DashboardPage() {
               metrics={benchmark}
               isConnected={isConnected}
               isRoverStreaming={isRoverStreaming}
+              simulationActive={simulationActive}
+              onToggleSimulation={() => setSimulationActive(!simulationActive)}
             />
           </div>
         )}
@@ -286,15 +352,21 @@ export default function DashboardPage() {
                 <div className="space-y-3 text-xs">
                   <div className="flex justify-between py-2 border-b border-white/5">
                     <span className="text-slate-400">Total Route Length:</span>
-                    <span className="font-mono text-cyan-400 font-bold">{route.total_distance.toFixed(2)} m</span>
+                    <span className="font-mono text-cyan-400 font-bold">
+                      {route ? `${route.total_distance.toFixed(2)} m` : "Loading..."}
+                    </span>
                   </div>
                   <div className="flex justify-between py-2 border-b border-white/5">
                     <span className="text-slate-400">Lane Count:</span>
-                    <span className="font-mono text-white font-bold">{route.num_lanes} straight lanes</span>
+                    <span className="font-mono text-white font-bold">
+                      {route ? `${route.num_lanes} straight lanes` : "--"}
+                    </span>
                   </div>
                   <div className="flex justify-between py-2 border-b border-white/5">
                     <span className="text-slate-400">Lane Spacing (Row Width):</span>
-                    <span className="font-mono text-white font-bold">{route.lane_spacing} m</span>
+                    <span className="font-mono text-white font-bold">
+                      {route ? `${route.lane_spacing} m` : "--"}
+                    </span>
                   </div>
                   <div className="flex justify-between py-2 border-b border-white/5">
                     <span className="text-slate-400">Nominal Lane Velocity:</span>
@@ -342,7 +414,7 @@ export default function DashboardPage() {
                 onInjectDelay={handleInjectDelay}
                 onReset={handleReset}
               />
-              <TelemetryChartSVG history={history} vehicleId={selectedVehicleId} />
+              <TelemetryChartSVG history={history} vehicleId={selectedVehicleId || "rover-alpha"} />
             </div>
           </div>
         )}
@@ -360,7 +432,7 @@ export default function DashboardPage() {
                 onInjectDelay={handleInjectDelay}
                 onReset={handleReset}
               />
-              <TelemetryChartSVG history={history} vehicleId={selectedVehicleId} />
+              <TelemetryChartSVG history={history} vehicleId={selectedVehicleId || "rover-alpha"} />
             </div>
             <div className="lg:col-span-5 h-[560px]">
               <RouteMapSVG
@@ -379,16 +451,17 @@ export default function DashboardPage() {
             <BenchmarkPanel
               metrics={benchmark}
               isConnected={isConnected}
+              isRoverStreaming={isRoverStreaming}
               simulationActive={simulationActive}
               onToggleSimulation={() => setSimulationActive(!simulationActive)}
             />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <TelemetryChartSVG history={history} vehicleId={selectedVehicleId} />
+              <TelemetryChartSVG history={history} vehicleId={selectedVehicleId || "rover-alpha"} />
               <div className="bg-[#0a0f1d] rounded-2xl border border-white/10 p-5 flex flex-col justify-between">
                 <div>
                   <h3 className="text-base font-semibold text-white mb-1">Architecture & Model Details</h3>
                   <p className="text-xs text-slate-400 mb-4">
-                    Edge closed loop execution pipeline: telemetry in &gt; twin forward lookahead &gt; RF speed regression &gt; trajectory differential steering &gt; immediate feedback.
+                    Edge closed-loop execution pipeline: telemetry in &gt; twin forward lookahead &gt; RF speed regression &gt; trajectory differential steering &gt; immediate feedback.
                   </p>
                   <div className="space-y-2 text-xs font-mono">
                     <div className="p-3 bg-[#060a14] rounded-xl border border-white/5 flex justify-between">

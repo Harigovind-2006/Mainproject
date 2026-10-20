@@ -34,6 +34,9 @@ class Segment:
             "end_point": [round(c, 3) for c in self.end_point],
             "center": [round(c, 3) for c in self.center] if self.center else None,
             "radius": round(self.radius, 3) if self.radius else None,
+            "start_angle": round(self.start_angle, 4) if self.start_angle is not None else None,
+            "end_angle": round(self.end_angle, 4) if self.end_angle is not None else None,
+            "clockwise": self.clockwise
         }
 
 
@@ -215,13 +218,8 @@ class SerpentineRoute:
         best_s = 0.0
         best_cross_track = 0.0
 
-        # Narrow search around current_segment_idx if provided
-        if current_segment_idx is not None:
-            min_idx = max(0, current_segment_idx - 1)
-            max_idx = min(len(self.segments), current_segment_idx + 2)
-            search_segments = self.segments[min_idx:max_idx]
-        else:
-            search_segments = self.segments
+        # Search all segments to ensure smooth segment transitions and lap wrap-arounds
+        search_segments = self.segments
 
         for seg in search_segments:
             if seg.type == "lane":

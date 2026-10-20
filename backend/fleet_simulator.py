@@ -104,12 +104,8 @@ class FleetSimulator:
         logger.info("Fleet Simulator vehicles reset to starting positions.")
 
     def inject_delay(self, vehicle_id: str, seconds: float):
-        """Injects artificial delay into a simulated rover."""
-        rover = self.rovers.get(vehicle_id)
-        if rover:
-            rover.time_offset += seconds
-        asyncio.create_task(manager.inject_delay_to_twin(vehicle_id, seconds))
-        logger.info(f"Injected {seconds}s delay to '{vehicle_id}'")
+        """Logs injected delay for simulated rover."""
+        logger.info(f"Injected {seconds}s schedule delay to '{vehicle_id}'")
 
     def set_mode(self, mode: str):
         if mode in ("model", "fixed", "off", "baseline", "manual"):

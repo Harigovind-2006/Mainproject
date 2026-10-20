@@ -46,109 +46,123 @@ export default function FleetTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
-            {vehicles.map((v) => {
-              const isSelected = v.vehicle_id === selectedVehicleId;
-              const statusColor =
-                v.schedule_status === "ON_SCHEDULE"
-                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                  : v.schedule_status === "AHEAD"
-                  ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/20"
-                  : "bg-amber-500/10 text-amber-400 border-amber-500/20";
+            {vehicles.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="py-8 text-center text-slate-400">
+                  <div className="flex flex-col items-center justify-center gap-2">
+                    <span className="text-xl">🚜</span>
+                    <span className="font-medium text-white text-sm">No Active Units Streaming Telemetry</span>
+                    <span className="text-xs text-slate-500 max-w-sm">
+                      When the simulation or physical rovers report telemetry via WebSocket, they will immediately populate this fleet monitoring table.
+                    </span>
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              vehicles.map((v) => {
+                const isSelected = v.vehicle_id === selectedVehicleId;
+                const statusColor =
+                  v.schedule_status === "ON_SCHEDULE"
+                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                    : v.schedule_status === "AHEAD"
+                    ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/20"
+                    : "bg-amber-500/10 text-amber-400 border-amber-500/20";
 
-              return (
-                <tr
-                  key={v.vehicle_id}
-                  onClick={() => onSelectVehicle(v.vehicle_id)}
-                  className={`cursor-pointer transition hover:bg-white/[0.03] ${
-                    isSelected ? "bg-cyan-500/5" : ""
-                  }`}
-                >
-                  {/* Vehicle Name */}
-                  <td className="py-3.5 px-3">
-                    <div className="flex items-center gap-2.5">
-                      <div
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold ${
-                          isSelected
-                            ? "bg-cyan-500/20 border border-cyan-500 text-cyan-300"
-                            : "bg-white/5 border border-white/10 text-slate-300"
+                return (
+                  <tr
+                    key={v.vehicle_id}
+                    onClick={() => onSelectVehicle(v.vehicle_id)}
+                    className={`cursor-pointer transition hover:bg-white/[0.03] ${
+                      isSelected ? "bg-cyan-500/5" : ""
+                    }`}
+                  >
+                    {/* Vehicle Name */}
+                    <td className="py-3.5 px-3">
+                      <div className="flex items-center gap-2.5">
+                        <div
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold ${
+                            isSelected
+                              ? "bg-cyan-500/20 border border-cyan-500 text-cyan-300"
+                              : "bg-white/5 border border-white/10 text-slate-300"
+                          }`}
+                        >
+                          🚜
+                        </div>
+                        <div>
+                          <div className="font-semibold text-white font-mono flex items-center gap-1.5">
+                            {v.vehicle_id}
+                            {isSelected && <span className="text-[10px] text-cyan-400">●</span>}
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            Bat: {v.battery_level ?? 90}% • Seg #{v.current_segment_id}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Status Badge */}
+                    <td className="py-3.5 px-3">
+                      <span className={`px-2.5 py-1 rounded-full border text-[10px] font-semibold ${statusColor}`}>
+                        {v.schedule_status.replace("_", " ")}
+                      </span>
+                    </td>
+
+                    {/* Route Progress Bar */}
+                    <td className="py-3.5 px-3 min-w-[140px]">
+                      <div className="flex justify-between text-[11px] mb-1 font-mono">
+                        <span className="text-white font-medium">{v.percent_complete.toFixed(1)}%</span>
+                        <span className="text-slate-400">{v.distance_covered.toFixed(0)}m</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all duration-300"
+                          style={{ width: `${Math.min(100, Math.max(0, v.percent_complete))}%` }}
+                        />
+                      </div>
+                    </td>
+
+                    {/* Speed */}
+                    <td className="py-3.5 px-3 font-mono">
+                      <span className="text-cyan-400 font-bold">{v.actual_speed.toFixed(2)}</span>
+                      <span className="text-slate-400 text-[10px]"> / {v.target_speed.toFixed(2)} m/s</span>
+                    </td>
+
+                    {/* Drift */}
+                    <td className="py-3.5 px-3 font-mono">
+                      <span
+                        className={`font-semibold ${
+                          v.schedule_status === "BEHIND" ? "text-amber-400" : v.schedule_status === "AHEAD" ? "text-cyan-400" : "text-emerald-400"
                         }`}
                       >
-                        🚜
-                      </div>
-                      <div>
-                        <div className="font-semibold text-white font-mono flex items-center gap-1.5">
-                          {v.vehicle_id}
-                          {isSelected && <span className="text-[10px] text-cyan-400">●</span>}
-                        </div>
-                        <div className="text-[10px] text-slate-500">
-                          Bat: {v.battery_level ?? 90}% • Seg #{v.current_segment_id}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
+                        {v.delta_T > 0 ? `+${v.delta_T.toFixed(2)}` : v.delta_T.toFixed(2)}s
+                      </span>
+                    </td>
 
-                  {/* Status Badge */}
-                  <td className="py-3.5 px-3">
-                    <span className={`px-2.5 py-1 rounded-full border text-[10px] font-semibold ${statusColor}`}>
-                      {v.schedule_status.replace("_", " ")}
-                    </span>
-                  </td>
+                    {/* Time Remaining */}
+                    <td className="py-3.5 px-3 font-mono text-slate-300">
+                      {Math.floor(v.time_remaining / 60)}m {Math.floor(v.time_remaining % 60)}s
+                    </td>
 
-                  {/* Route Progress Bar */}
-                  <td className="py-3.5 px-3 min-w-[140px]">
-                    <div className="flex justify-between text-[11px] mb-1 font-mono">
-                      <span className="text-white font-medium">{v.percent_complete.toFixed(1)}%</span>
-                      <span className="text-slate-400">{v.distance_covered.toFixed(0)}m</span>
-                    </div>
-                    <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all duration-300"
-                        style={{ width: `${Math.min(100, Math.max(0, v.percent_complete))}%` }}
-                      />
-                    </div>
-                  </td>
-
-                  {/* Speed */}
-                  <td className="py-3.5 px-3 font-mono">
-                    <span className="text-cyan-400 font-bold">{v.actual_speed.toFixed(2)}</span>
-                    <span className="text-slate-400 text-[10px]"> / {v.target_speed.toFixed(2)} m/s</span>
-                  </td>
-
-                  {/* Drift */}
-                  <td className="py-3.5 px-3 font-mono">
-                    <span
-                      className={`font-semibold ${
-                        v.delta_T > 2 ? "text-amber-400" : v.delta_T < -1 ? "text-cyan-400" : "text-emerald-400"
-                      }`}
-                    >
-                      {v.delta_T > 0 ? `+${v.delta_T.toFixed(2)}` : v.delta_T.toFixed(2)}s
-                    </span>
-                  </td>
-
-                  {/* Time Remaining */}
-                  <td className="py-3.5 px-3 font-mono text-slate-300">
-                    {Math.floor(v.time_remaining / 60)}m {Math.floor(v.time_remaining % 60)}s
-                  </td>
-
-                  {/* Action */}
-                  <td className="py-3.5 px-3 text-right">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectVehicle(v.vehicle_id);
-                      }}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                        isSelected
-                          ? "bg-cyan-500 text-slate-950 font-bold"
-                          : "bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white"
-                      }`}
-                    >
-                      {isSelected ? "Active" : "Inspect"}
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
+                    {/* Action */}
+                    <td className="py-3.5 px-3 text-right">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectVehicle(v.vehicle_id);
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                          isSelected
+                            ? "bg-cyan-500 text-slate-950 font-bold"
+                            : "bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white"
+                        }`}
+                      >
+                        {isSelected ? "Active" : "Inspect"}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
           </tbody>
         </table>
       </div>

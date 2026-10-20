@@ -177,7 +177,7 @@ class ConnectionManager:
         if not self.twins:
             defaults = [
                 ("rover-alpha", 0.0),
-                ("rover-beta", 35.0),
+                ("rover-beta", 38.0),
                 ("rover-gamma", 85.0),
             ]
             for v_id, s_init in defaults:
@@ -187,11 +187,12 @@ class ConnectionManager:
 
     async def reset_fleet_twins(self):
         """Resets all active twins to the starting configuration and broadcasts."""
+        stagger = {"rover-alpha": 0.0, "rover-beta": 38.0, "rover-gamma": 85.0}
         if not self.twins:
             self.ensure_default_twins()
         else:
-            for i, (v_id, twin) in enumerate(self.twins.items()):
-                init_s = (i * 35.0) % default_route.total_distance
+            for v_id, twin in self.twins.items():
+                init_s = stagger.get(v_id, 0.0)
                 twin.reset(initial_s=init_s)
         await self.broadcast_fleet_status()
 

@@ -258,7 +258,7 @@ async def websocket_dashboard_endpoint(
             elif action == "INJECT_DELAY":
                 vehicle_id = msg.get("vehicle_id", "rover-alpha")
                 seconds = float(msg.get("seconds", 5.0))
-                fleet_simulator.inject_delay(vehicle_id, seconds)
+                await manager.inject_delay_to_twin(vehicle_id, seconds)
             elif action == "SET_MODE":
                 new_mode = msg.get("mode", "model")
                 fleet_simulator.set_mode(new_mode)
