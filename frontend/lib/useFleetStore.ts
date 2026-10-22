@@ -26,6 +26,8 @@ export function useFleetStore() {
   const [correctionMode, setCorrectionMode] = useState<"model" | "baseline" | "manual">("model");
   const [simulationActive, setSimulationActive] = useState<boolean>(true);
   const [history, setHistory] = useState<Record<string, TelemetryPoint[]>>({});
+  const [etaConfigured, setEtaConfigured] = useState<boolean>(false);
+  const [plannedHours, setPlannedHours] = useState<number | null>(null);
   const [benchmark, setBenchmark] = useState<BenchmarkMetrics>({
     total_messages: 0,
     uptime_seconds: 0,
@@ -116,6 +118,13 @@ export function useFleetStore() {
         const simData = await simRes.json();
         if (typeof simData.running === "boolean") {
           setSimulationActive(simData.running);
+        }
+        // Restore ETA state from backend
+        if (simData.eta_configured) {
+          setEtaConfigured(true);
+          if (simData.planned_seconds) {
+            setPlannedHours(simData.planned_seconds / 3600);
+          }
         }
       }
     } catch {
@@ -243,6 +252,9 @@ export function useFleetStore() {
       wsRef.current.send(JSON.stringify({ action: "RESET_FLEET" }));
     }
     setHistory({});
+    // Clear ETA so the mission setup modal reappears
+    setEtaConfigured(false);
+    setPlannedHours(null);
     // Fetch refreshed real state from backend instead of dummy data
     await refreshBackendState();
   };
@@ -258,6 +270,49 @@ export function useFleetStore() {
 
     if (wsRef.current && isConnected) {
       wsRef.current.send(JSON.stringify({ action: "INJECT_DELAY", vehicle_id: vehicleId, seconds }));
+    }
+  };
+
+  const setPlannedTime = async (hours: number) => {
+    // Convert hours to seconds for the backend
+    const seconds = hours * 3600;
+    try {
+      await fetch(`${API_BASE_URL}/api/fleet/set-planned-time`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seconds }),
+      });
+    } catch {}
+    if (wsRef.current && isConnected) {
+      wsRef.current.send(JSON.stringify({ action: "SET_PLANNED_TIME", seconds }));
+    }
+    setEtaConfigured(true);
+    setPlannedHours(hours);
+  };
+
+  const stopRover = async (vehicleId: string) => {
+    try {
+      await fetch(`${API_BASE_URL}/api/fleet/stop-rover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vehicle_id: vehicleId }),
+      });
+    } catch {}
+    if (wsRef.current && isConnected) {
+      wsRef.current.send(JSON.stringify({ action: "STOP_ROVER", vehicle_id: vehicleId }));
+    }
+  };
+
+  const resumeRover = async (vehicleId: string) => {
+    try {
+      await fetch(`${API_BASE_URL}/api/fleet/resume-rover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vehicle_id: vehicleId }),
+      });
+    } catch {}
+    if (wsRef.current && isConnected) {
+      wsRef.current.send(JSON.stringify({ action: "RESUME_ROVER", vehicle_id: vehicleId }));
     }
   };
 
@@ -323,8 +378,13 @@ export function useFleetStore() {
     setSimulationActive: handleSetSimulationActive,
     history: activeVehicle ? history[activeVehicle.vehicle_id] || [] : [],
     benchmark,
+    etaConfigured,
+    plannedHours,
     resetFleet,
     injectDelay,
+    setPlannedTime,
+    stopRover,
+    resumeRover,
     refreshBackendState,
   };
 }

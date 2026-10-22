@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { VehicleTelemetry } from "@/lib/types";
 
 interface DigitalTwinPanelProps {
@@ -11,6 +11,10 @@ interface DigitalTwinPanelProps {
   onSetCorrectionMode: (mode: "model" | "baseline" | "manual") => void;
   onInjectDelay: (seconds: number) => void;
   onReset: () => void;
+  onSetPlannedTime: (seconds: number) => void;
+  onStopRover: (vehicleId: string) => void;
+  onResumeRover: (vehicleId: string) => void;
+  roverStopped?: boolean;
 }
 
 export default function DigitalTwinPanel({
@@ -21,7 +25,14 @@ export default function DigitalTwinPanel({
   onSetCorrectionMode,
   onInjectDelay,
   onReset,
+  onSetPlannedTime,
+  onStopRover,
+  onResumeRover,
+  roverStopped = false,
 }: DigitalTwinPanelProps) {
+  const [plannedTimeInput, setPlannedTimeInput] = useState<string>("");
+  const [plannedTimeError, setPlannedTimeError] = useState<string | null>(null);
+
   if (!vehicle) {
     return (
       <div className="bg-[#0a0f1d] rounded-2xl border border-white/10 p-6 flex flex-col items-center justify-center min-h-[300px] text-center gap-3">
@@ -209,38 +220,109 @@ export default function DigitalTwinPanel({
       </div>
 
       {/* Control Buttons & Perturbation injection */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-white/5">
-        <button
-          onClick={onToggleAi}
-          className={`px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-2 ${
-            aiActive
-              ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20"
-              : "bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20"
-          }`}
-        >
-          <span className={`w-2 h-2 rounded-full ${aiActive ? "bg-emerald-400" : "bg-red-400"}`} />
-          {aiActive ? "AI CLOSED-LOOP ACTIVE" : "AI CORRECTION DISABLED"}
-        </button>
+      <div className="flex flex-col gap-3 pt-3 border-t border-white/5">
+        {/* === Target Completion Time Input (hours) === */}
+        <div className="bg-[#060a14] rounded-xl p-3 border border-white/5">
+          <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <span className="text-purple-400">⏱</span> Update Target Completion Time
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <input
+                id="planned-time-input"
+                type="number"
+                min="0.01"
+                step="0.25"
+                placeholder="Enter hours (e.g. 1.5)"
+                value={plannedTimeInput}
+                onChange={(e) => {
+                  setPlannedTimeInput(e.target.value);
+                  setPlannedTimeError(null);
+                }}
+                className="w-full bg-[#0a0f1d] border border-white/10 focus:border-purple-500/60 rounded-lg px-3 py-2 text-xs font-mono text-slate-200 outline-none placeholder-slate-600 transition pr-8"
+              />
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 pointer-events-none">hr</span>
+            </div>
+            <button
+              id="set-planned-time-btn"
+              onClick={() => {
+                const val = parseFloat(plannedTimeInput);
+                if (isNaN(val) || val <= 0) {
+                  setPlannedTimeError("Enter a positive number of hours (e.g. 1.5).");
+                  return;
+                }
+                onSetPlannedTime(val);
+                setPlannedTimeInput("");
+              }}
+              className="px-3 py-2 bg-purple-500/15 border border-purple-500/30 text-purple-300 text-xs font-semibold rounded-lg hover:bg-purple-500/25 transition whitespace-nowrap"
+            >
+              Update ETA
+            </button>
+          </div>
+          {plannedTimeError && (
+            <p className="text-[10px] text-red-400 mt-1">{plannedTimeError}</p>
+          )}
+          <p className="text-[10px] text-slate-500 mt-1.5">
+            Rover speed auto-scales to finish the full route within the given hours.
+          </p>
+        </div>
 
-        <div className="flex items-center gap-2">
+        {/* === Action Row === */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <button
-            onClick={() => onInjectDelay(5)}
-            className="px-3 py-2 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-medium rounded-xl hover:bg-amber-500/20 transition"
+            onClick={onToggleAi}
+            className={`px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-2 ${
+              aiActive
+                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20"
+                : "bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20"
+            }`}
           >
-            ⚠️ Inject +5s Delay
+            <span className={`w-2 h-2 rounded-full ${aiActive ? "bg-emerald-400" : "bg-red-400"}`} />
+            {aiActive ? "AI CLOSED-LOOP ACTIVE" : "AI CORRECTION DISABLED"}
           </button>
-          <button
-            onClick={() => onInjectDelay(-3)}
-            className="px-3 py-2 bg-blue-500/10 border border-blue-500/30 text-blue-300 text-xs font-medium rounded-xl hover:bg-blue-500/20 transition"
-          >
-            ⚡ Boost Pacing (-3s)
-          </button>
-          <button
-            onClick={onReset}
-            className="px-3 py-2 bg-white/5 border border-white/10 text-slate-300 text-xs font-medium rounded-xl hover:bg-white/10 transition"
-          >
-            ↺ Reset
-          </button>
+
+          <div className="flex items-center gap-2">
+            {/* Stop / Resume Rover */}
+            {vehicle && (
+              roverStopped ? (
+                <button
+                  id="resume-rover-btn"
+                  onClick={() => onResumeRover(vehicle.vehicle_id)}
+                  className="px-3 py-2 bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-semibold rounded-xl hover:bg-emerald-500/25 transition flex items-center gap-1.5"
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  ▶ Resume Rover
+                </button>
+              ) : (
+                <button
+                  id="stop-rover-btn"
+                  onClick={() => onStopRover(vehicle.vehicle_id)}
+                  className="px-3 py-2 bg-red-500/15 border border-red-500/30 text-red-300 text-xs font-semibold rounded-xl hover:bg-red-500/25 transition flex items-center gap-1.5"
+                >
+                  <span className="w-2 h-2 rounded-full bg-red-400" />
+                  ■ Stop Rover
+                </button>
+              )
+            )}
+            <button
+              onClick={() => onInjectDelay(5)}
+              className="px-3 py-2 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-medium rounded-xl hover:bg-amber-500/20 transition"
+            >
+              ⚠️ Inject +5s Delay
+            </button>
+            <button
+              onClick={() => onInjectDelay(-3)}
+              className="px-3 py-2 bg-blue-500/10 border border-blue-500/30 text-blue-300 text-xs font-medium rounded-xl hover:bg-blue-500/20 transition"
+            >
+              ⚡ Boost Pacing (-3s)
+            </button>
+            <button
+              onClick={onReset}
+              className="px-3 py-2 bg-white/5 border border-white/10 text-slate-300 text-xs font-medium rounded-xl hover:bg-white/10 transition"
+            >
+              ↺ Reset
+            </button>
+          </div>
         </div>
       </div>
     </div>

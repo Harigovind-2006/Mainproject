@@ -159,6 +159,13 @@ class InjectDelayRequest(BaseModel):
 class SetModeRequest(BaseModel):
     mode: str  # "model", "fixed", "off"
 
+class SetPlannedTimeRequest(BaseModel):
+    seconds: Optional[float] = None  # target completion time in seconds
+    hours: Optional[float] = None    # target completion time in hours
+
+class RoverControlRequest(BaseModel):
+    vehicle_id: str
+
 @app.post("/api/fleet/reset")
 async def reset_fleet():
     fleet_simulator.reset()
@@ -178,13 +185,49 @@ async def set_mode_endpoint(req: SetModeRequest):
     fleet_simulator.set_mode(req.mode)
     return {"status": "ok", "mode": fleet_simulator.mode}
 
+@app.post("/api/fleet/set-planned-time")
+async def set_planned_time_endpoint(req: SetPlannedTimeRequest):
+    secs = req.seconds
+    if secs is None and req.hours is not None:
+        secs = req.hours * 3600.0
+    if secs is None or secs <= 0:
+        raise HTTPException(status_code=400, detail="Must provide either 'seconds' > 0 or 'hours' > 0")
+    fleet_simulator.set_planned_time(secs)
+    return {"status": "ok", "planned_seconds": secs, "planned_hours": round(secs / 3600.0, 3)}
+
+@app.post("/api/fleet/stop-rover")
+async def stop_rover_endpoint(req: RoverControlRequest):
+    success = fleet_simulator.stop_rover(req.vehicle_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Vehicle '{req.vehicle_id}' not found")
+    return {"status": "stopped", "vehicle_id": req.vehicle_id}
+
+@app.post("/api/fleet/resume-rover")
+async def resume_rover_endpoint(req: RoverControlRequest):
+    success = fleet_simulator.resume_rover(req.vehicle_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Vehicle '{req.vehicle_id}' not found")
+    return {"status": "resumed", "vehicle_id": req.vehicle_id}
+
 @app.get("/api/simulation/status")
 async def simulation_status():
     return {
         "running": fleet_simulator.is_running,
         "mode": fleet_simulator.mode,
         "rover_count": len(fleet_simulator.rovers),
-        "update_interval": fleet_simulator.update_interval
+        "update_interval": fleet_simulator.update_interval,
+        "eta_configured": fleet_simulator.eta_configured,
+        "planned_seconds": fleet_simulator.planned_seconds,
+    }
+
+@app.get("/api/simulation/eta-status")
+async def eta_status():
+    """Returns ETA configuration state for the frontend mission setup modal."""
+    return {
+        "eta_configured": fleet_simulator.eta_configured,
+        "planned_seconds": fleet_simulator.planned_seconds,
+        "planned_hours": round(fleet_simulator.planned_seconds / 3600, 4) if fleet_simulator.planned_seconds else None,
+        "rover_stopped": fleet_simulator.rovers.get("rover-alpha", None) and fleet_simulator.rovers["rover-alpha"].stopped,
     }
 
 @app.post("/api/simulation/start")
@@ -267,6 +310,16 @@ async def websocket_dashboard_endpoint(
                     fleet_simulator.stop()
                 else:
                     fleet_simulator.start()
+            elif action == "STOP_ROVER":
+                vehicle_id = msg.get("vehicle_id", "rover-alpha")
+                fleet_simulator.stop_rover(vehicle_id)
+            elif action == "RESUME_ROVER":
+                vehicle_id = msg.get("vehicle_id", "rover-alpha")
+                fleet_simulator.resume_rover(vehicle_id)
+            elif action == "SET_PLANNED_TIME":
+                seconds = float(msg.get("seconds", 0))
+                if seconds > 0:
+                    fleet_simulator.set_planned_time(seconds)
             elif action == "PING":
                 await websocket.send_json({"type": "PONG", "timestamp": msg.get("timestamp")})
     except WebSocketDisconnect:

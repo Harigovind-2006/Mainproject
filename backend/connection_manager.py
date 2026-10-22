@@ -173,12 +173,10 @@ class ConnectionManager:
             self.dashboard_connections.discard(s)
 
     def ensure_default_twins(self):
-        """Initializes default digital twins if none exist yet."""
+        """Initializes default digital twins if none exist yet (single rover-alpha)."""
         if not self.twins:
             defaults = [
                 ("rover-alpha", 0.0),
-                ("rover-beta", 38.0),
-                ("rover-gamma", 85.0),
             ]
             for v_id, s_init in defaults:
                 twin = VehicleTwin(vehicle_id=v_id, route=default_route)
@@ -187,11 +185,14 @@ class ConnectionManager:
 
     async def reset_fleet_twins(self):
         """Resets all active twins to the starting configuration and broadcasts."""
-        stagger = {"rover-alpha": 0.0, "rover-beta": 38.0, "rover-gamma": 85.0}
+        stagger = {"rover-alpha": 0.0}
         if not self.twins:
             self.ensure_default_twins()
         else:
-            for v_id, twin in self.twins.items():
+            for v_id, twin in list(self.twins.items()):
+                if v_id != "rover-alpha":
+                    del self.twins[v_id]
+                    continue
                 init_s = stagger.get(v_id, 0.0)
                 twin.reset(initial_s=init_s)
         await self.broadcast_fleet_status()

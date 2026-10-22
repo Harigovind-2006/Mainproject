@@ -97,6 +97,18 @@ export default function Navbar({
               </div>
             )}
 
+            {/* 3D Sandbox Launcher Button */}
+            <a
+              href="http://localhost:5174"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/20 to-yellow-500/20 hover:from-amber-500/30 hover:to-yellow-500/30 text-yellow-300 border border-yellow-500/40 text-xs font-semibold shadow-md transition hover:scale-105"
+              title="Open Microduck-Style 3D Simulator Sandbox"
+            >
+              <span>🎮</span>
+              <span>3D Sandbox</span>
+            </a>
+
             {/* Connection Status Badge */}
             <div
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-mono ${

@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agri-Rover 3D Sandbox • Autonomous Digital Twin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Anton&family=JetBrains+Mono:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <!-- 3D WebGL Canvas Container -->
+    <div id="canvas-container"></div>
+
+    <!-- =========================================================
+         LANDING SCREEN OVERLAY (Microduck style welcome screen)
+         ========================================================= -->
+    <div id="landing-overlay">
+      <div class="landing-card">
+        <div class="landing-badge">
+          <span>⚡</span>
+          <span>AUTONOMOUS FIELD ROBOTICS PLAYGROUND</span>
+        </div>
+
+        <h1 class="landing-title">
+          AGRI-ROVER<br /><span>SANDBOX</span>
+        </h1>
+
+        <p class="landing-desc">
+          Interactive 3D physical digital twin simulator for differential-drive agricultural rovers.
+          Features closed-loop serpentine trajectory guidance (Ospina & Noguchi 2025), dynamic physics with an interactive soccer ball, multi-mode cameras, and synthesized electric motor audio.
+        </p>
+
+        <div class="landing-features">
+          <div class="feature-box">
+            <span class="icon">🚜</span>
+            <span class="label">3D SERPENTINE ROUTE</span>
+            <span class="sub">Straight lanes with 180° headland turns auto-scaled to your target ETA.</span>
+          </div>
+          <div class="feature-box">
+            <span class="icon">⚽</span>
+            <span class="label">PHYSICS PROPS</span>
+            <span class="sub">Dynamic field soccer ball to bump, push, and kick around the arena.</span>
+          </div>
+          <div class="feature-box">
+            <span class="icon">📹</span>
+            <span class="label">CHASE CAM & AUDIO</span>
+            <span class="sub">Smooth tracking camera (drag to orbit) with synthesized electric motor hum.</span>
+          </div>
+        </div>
+
+        <div class="landing-actions">
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <span style="font-size: 0.72rem; color: var(--slate); font-weight: 700;">DEFAULT COLOR:</span>
+            <div class="color-dot" style="background: #ffd21e;" data-color="ffd21e"></div>
+            <div class="color-dot" style="background: #00f0ff;" data-color="00f0ff"></div>
+            <div class="color-dot" style="background: #10b981;" data-color="10b981"></div>
+          </div>
+          <button id="btn-launch-sandbox" class="comic-btn">
+            <span>LAUNCH SANDBOX</span>
+            <span>▶</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- =========================================================
+         BIOS DIAGNOSTIC BOOT SCREEN ("HONEST LOADER")
+         ========================================================= -->
+    <div id="bios-screen" class="hidden">
+      <div class="bios-header">
+        <div>
+          <div class="bios-title">SYSTEM DIAGNOSTICS & HARDWARE BOOT</div>
+          <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">
+            AGRI-TWIN SIMULATOR BIOS RELEASE v2.5.0
+          </div>
+        </div>
+        <div style="text-align: right; font-size: 0.75rem; color: var(--yellow);">
+          STATUS: CHECKING SUBSYSTEMS
+        </div>
+      </div>
+
+      <div class="bios-terminal"></div>
+
+      <div>
+        <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #94a3b8; margin-bottom: 4px;">
+          <span>INITIALIZING SHADOW VOLUMES & KINEMATICS...</span>
+          <span>STANDALONE + LIVE BRIDGE</span>
+        </div>
+        <div class="bios-progress-wrap">
+          <div class="bios-progress-bar"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =========================================================
+         CAMCORDER RETRO HUD OVERLAY
+         ========================================================= -->
+    <div id="hud-overlay">
+      <!-- Top OSD Bar -->
+      <div class="hud-top">
+        <div class="rec-badge">
+          <div class="rec-dot"></div>
+          <span>REC</span>
+          <span id="hud-timecode" style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: #fff; margin-left: 6px;">00:00:00</span>
+        </div>
+
+        <div class="hud-pill-group">
+          <div class="hud-pill">
+            <span>ROVER:</span>
+            <span class="val" style="color: var(--yellow);">ALPHA-1</span>
+          </div>
+          <div class="hud-pill">
+            <span>GPS:</span>
+            <span class="val">34.02°N, 118.49°W</span>
+          </div>
+          <div class="hud-pill">
+            <span>BATT:</span>
+            <span class="val" style="color: #10b981;">98% ⚡</span>
+          </div>
+          <div id="hud-ws-badge" class="hud-pill">
+            <span>LINK:</span>
+            <span class="val">○ STANDALONE</span>
+          </div>
+          <button id="hud-mute-btn" class="comic-btn sm dark" style="font-size: 0.72rem; padding: 4px 10px;">
+            🔊 SOUND ON
+          </button>
+        </div>
+      </div>
+
+      <!-- Bottom Telemetry & Controls Bar -->
+      <div class="hud-bottom">
+        <!-- Speedometer & Status Card -->
+        <div class="speedo-card">
+          <div style="display: flex; flex-direction: column; align-items: center;">
+            <div id="hud-speed-val" class="speedo-num">0.00</div>
+            <div class="speedo-unit">METERS / SEC</div>
+          </div>
+
+          <div class="speedo-bars">
+            <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--slate); font-weight: 700;">
+              <span>VELOCITY GAUGE</span>
+              <span>MAX 3.0 m/s</span>
+            </div>
+            <div class="speed-meter">
+              <div id="hud-speed-bar" class="speed-meter-fill"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+              <button id="hud-stop-resume-btn" class="comic-btn sm" style="padding: 4px 12px; font-size: 0.78rem;">
+                ⏹ STOP
+              </button>
+              <div style="font-size: 0.72rem; font-weight: 700; color: var(--slate);">
+                DRIFT (ΔT): <span id="hud-drift-val" style="color: #10b981; font-family: 'JetBrains Mono', monospace;">+0.00s</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Center Mission ETA & Progress -->
+        <div class="mission-hud-center">
+          <div class="mission-hud-header">
+            <span>FIELD MISSION TARGET ETA</span>
+            <span id="hud-progress-pct" style="color: var(--cyan); font-family: 'JetBrains Mono', monospace;">0.0%</span>
+          </div>
+
+          <div id="hud-eta-timer" class="mission-hud-timer">
+            --:--:-- <span>REMAINING</span>
+          </div>
+
+          <div class="route-progress-wrap">
+            <div id="hud-progress-bar" class="route-progress-bar"></div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; width: 100%; font-size: 0.68rem; color: var(--slate); margin-top: 2px;">
+            <span>ROUTE DISTANCE: 188.3 m</span>
+            <span style="color: var(--yellow);">CLOSED-LOOP SPEED SCALING</span>
+          </div>
+        </div>
+
+        <!-- Right Quick Actions & Palette -->
+        <div class="actions-hud-right">
+          <div style="display: flex; gap: 8px;">
+            <button id="hud-mode-badge" class="comic-btn sm cyan" style="font-size: 0.78rem;">
+              MODE: AUTONOMOUS [M]
+            </button>
+            <button id="hud-cam-badge" class="comic-btn sm dark" style="font-size: 0.78rem;">
+              CAM: CHASE [C]
+            </button>
+            <button id="hud-horn-btn" class="comic-btn sm" style="font-size: 0.78rem; background: var(--hazard); color: #fff;">
+              🎺 QUACK [H]
+            </button>
+          </div>
+
+          <div class="color-dots">
+            <span style="font-size: 0.7rem; font-weight: 700; color: var(--slate); margin-right: 4px;">PAINT:</span>
+            <div class="color-dot active" style="background: #ffd21e;" data-color="ffd21e" title="Microduck Yellow"></div>
+            <div class="color-dot" style="background: #00f0ff;" data-color="00f0ff" title="Cyber Cyan"></div>
+            <div class="color-dot" style="background: #10b981;" data-color="10b981" title="Tractor Green"></div>
+            <div class="color-dot" style="background: #ff5722;" data-color="ff5722" title="Mars Orange"></div>
+            <div class="color-dot" style="background: #181c24;" data-color="181c24" title="Carbon Black"></div>
+          </div>
+
+          <div class="shortcuts-legend">
+            <div><kbd>WASD</kbd> Drive</div>
+            <div><kbd>SPACE</kbd> Brake</div>
+            <div><kbd>C</kbd> Chase</div>
+            <div><kbd>M</kbd> Mode</div>
+            <div><kbd>R</kbd> Reset</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =========================================================
+         MISSION SETUP / SET ETA MODAL
+         ========================================================= -->
+    <div id="eta-modal" class="hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 1.8rem;">🚜</span>
+            <div class="modal-title">MISSION SETUP & ETA</div>
+          </div>
+          <p class="modal-desc">
+            Set your target completion time in <strong>hours</strong> before the rover begins work.
+            The rover speed will automatically calibrate so the 188.3 m serpentine field route finishes exactly within your deadline.
+          </p>
+        </div>
+
+        <div>
+          <label style="font-size: 0.72rem; font-weight: 700; color: var(--slate); text-transform: uppercase;">
+            QUICK PRESETS (HOURS)
+          </label>
+          <div class="preset-chips" style="margin-top: 6px;">
+            <div class="chip-btn" data-hours="0.5">30 MIN (0.5h)</div>
+            <div class="chip-btn selected" data-hours="1.0">1 HOUR (1.0h)</div>
+            <div class="chip-btn" data-hours="1.5">1.5 HR (1.5h)</div>
+            <div class="chip-btn" data-hours="2.0">2 HOURS (2.0h)</div>
+          </div>
+        </div>
+
+        <div>
+          <label style="font-size: 0.72rem; font-weight: 700; color: var(--slate); text-transform: uppercase;">
+            OR ENTER CUSTOM HOURS
+          </label>
+          <div class="eta-input-row" style="margin-top: 6px;">
+            <input
+              id="modal-eta-input"
+              type="number"
+              step="0.25"
+              min="0.05"
+              value="1.0"
+              class="eta-field"
+              placeholder="e.g. 1.5"
+            />
+            <button id="btn-start-mission" class="comic-btn">
+              <span>▶ START MISSION</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

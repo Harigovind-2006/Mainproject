@@ -26,17 +26,45 @@ export default function DashboardPage() {
     setSimulationActive,
     history,
     benchmark,
+    etaConfigured,
+    plannedHours,
     resetFleet,
     injectDelay,
+    setPlannedTime,
+    stopRover,
+    resumeRover,
     refreshBackendState,
   } = useFleetStore();
 
   const [activeTab, setActiveTab] = useState<string>("overview");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  // Track stopped state per vehicle on the frontend for immediate UI feedback
+  const [stoppedVehicles, setStoppedVehicles] = useState<Set<string>>(new Set());
+  // Mission setup modal ETA input
+  const [etaInput, setEtaInput] = useState<string>("");
+  const [etaError, setEtaError] = useState<string | null>(null);
+  const [etaSubmitting, setEtaSubmitting] = useState<boolean>(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  // ---- Mission Setup: ETA submit ----
+  const handleEtaSubmit = async () => {
+    const val = parseFloat(etaInput);
+    if (isNaN(val) || val <= 0) {
+      setEtaError("Please enter a valid number of hours (e.g. 1.5 for 1 hour 30 minutes).");
+      return;
+    }
+    setEtaSubmitting(true);
+    await setPlannedTime(val);
+    setEtaSubmitting(false);
+    setEtaInput("");
+    setEtaError(null);
+    const h = Math.floor(val);
+    const m = Math.round((val - h) * 60);
+    showToast(`✅ Mission started! ETA: ${h}h ${m}m — Rover is now moving.`);
   };
 
   const handleInjectDelay = (seconds: number) => {
@@ -52,8 +80,32 @@ export default function DashboardPage() {
     );
   };
 
+  const handleSetPlannedTime = (hours: number) => {
+    setPlannedTime(hours);
+    const h = Math.floor(hours);
+    const m = Math.round((hours - h) * 60);
+    showToast(`ETA updated to ${h}h ${m}m. Rover speed adjusted.`);
+  };
+
+  const handleStopRover = (vehicleId: string) => {
+    stopRover(vehicleId);
+    setStoppedVehicles((prev) => new Set([...prev, vehicleId]));
+    showToast(`Rover ${vehicleId} commanded to STOP.`);
+  };
+
+  const handleResumeRover = (vehicleId: string) => {
+    resumeRover(vehicleId);
+    setStoppedVehicles((prev) => {
+      const next = new Set(prev);
+      next.delete(vehicleId);
+      return next;
+    });
+    showToast(`Rover ${vehicleId} commanded to RESUME.`);
+  };
+
   const handleReset = async () => {
     await resetFleet();
+    setStoppedVehicles(new Set());
     showToast("Fleet digital twins and route progress reset.");
   };
 
@@ -72,6 +124,125 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen bg-[#070b14] text-white flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950">
+      {/* ===================== MISSION SETUP MODAL ===================== */}
+      {!etaConfigured && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#030609]/90 backdrop-blur-md p-4 animate-in fade-in duration-300">
+          <div className="w-full max-w-lg bg-[#0a0f1d] border border-cyan-500/30 rounded-3xl shadow-2xl p-8 flex flex-col gap-6 relative">
+            {/* Glow effect */}
+            <div className="absolute -top-12 left-1/2 -translate-x-1/2 w-48 h-20 bg-cyan-500/10 blur-2xl rounded-full pointer-events-none" />
+
+            {/* Header */}
+            <div className="flex flex-col items-center gap-3 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-600/20 border border-cyan-500/30 flex items-center justify-center text-3xl shadow-inner">
+                🚜
+              </div>
+              <h2 className="text-2xl font-bold text-white tracking-tight">Mission Setup & ETA</h2>
+              <p className="text-xs sm:text-sm text-slate-400 max-w-md">
+                Configure the target mission completion time in <strong className="text-cyan-300">hours</strong>.
+                The rover is currently stopped and will automatically scale its speed to complete the entire route within your desired ETA.
+              </p>
+            </div>
+
+            {/* Route Summary */}
+            {route && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-[#060a14] rounded-2xl p-3.5 border border-white/5 text-center">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Route Distance</div>
+                  <div className="text-lg font-bold font-mono text-cyan-400 mt-1">{route.total_distance.toFixed(1)} m</div>
+                </div>
+                <div className="bg-[#060a14] rounded-2xl p-3.5 border border-white/5 text-center">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Default Plan Time</div>
+                  <div className="text-lg font-bold font-mono text-purple-400 mt-1">{(route.total_plan_time / 3600).toFixed(2)} hr</div>
+                </div>
+              </div>
+            )}
+
+            {/* Quick Preset Buttons */}
+            <div className="flex flex-col gap-2">
+              <label className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">
+                Quick Presets
+              </label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { label: "30 min", val: "0.5" },
+                  { label: "1 hour", val: "1.0" },
+                  { label: "1.5 hr", val: "1.5" },
+                  { label: "2 hours", val: "2.0" },
+                ].map((preset) => (
+                  <button
+                    key={preset.val}
+                    type="button"
+                    onClick={() => {
+                      setEtaInput(preset.val);
+                      setEtaError(null);
+                    }}
+                    className={`py-2 px-2 text-xs font-mono font-medium rounded-xl border transition ${
+                      etaInput === preset.val
+                        ? "bg-cyan-500/20 border-cyan-400 text-cyan-300 font-bold"
+                        : "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ETA Input Field */}
+            <div className="flex flex-col gap-2">
+              <label htmlFor="mission-eta-input" className="text-xs text-slate-300 font-semibold uppercase tracking-wider flex items-center justify-between">
+                <span>Target Completion Time (Hours)</span>
+                <span className="text-[10px] text-cyan-400 font-mono">e.g. 1.5 = 1 hr 30 min</span>
+              </label>
+              <div className="flex items-center gap-3">
+                <div className="relative flex-1">
+                  <input
+                    id="mission-eta-input"
+                    type="number"
+                    min="0.01"
+                    step="0.25"
+                    placeholder="Enter hours (e.g. 1.0)"
+                    value={etaInput}
+                    onChange={(e) => {
+                      setEtaInput(e.target.value);
+                      setEtaError(null);
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && handleEtaSubmit()}
+                    autoFocus
+                    className="w-full bg-[#060a14] border border-white/10 focus:border-cyan-500/60 rounded-xl px-4 py-3 text-sm font-mono text-white outline-none placeholder-slate-600 transition-all pr-12"
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm font-mono pointer-events-none">
+                    hr
+                  </span>
+                </div>
+                <button
+                  id="mission-start-btn"
+                  onClick={handleEtaSubmit}
+                  disabled={etaSubmitting}
+                  className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-sm rounded-xl transition-all shadow-lg shadow-cyan-500/20 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap flex items-center gap-2"
+                >
+                  {etaSubmitting ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                      <span>Starting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>▶</span>
+                      <span>Start Mission</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              {etaError && <p className="text-xs text-red-400">{etaError}</p>}
+              <p className="text-[11px] text-slate-500 mt-1">
+                The rover will start moving immediately after setting the target ETA. You can adjust the ETA or pause the rover at any point during operation.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top Navigation */}
       <Navbar
         isConnected={isConnected}
@@ -132,6 +303,19 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            {/* ETA Mission Status Pill */}
+            {!etaConfigured ? (
+              <div className="px-3 py-1.5 rounded-xl border bg-amber-500/10 border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                <span>Rover STOPPED • Awaiting ETA</span>
+              </div>
+            ) : (
+              <div className="px-3 py-1.5 rounded-xl border bg-purple-500/10 border-purple-500/30 text-purple-300 text-xs font-semibold flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-purple-400" />
+                <span>Target ETA: {plannedHours ? (plannedHours >= 1 ? `${plannedHours.toFixed(2)} hr` : `${(plannedHours * 60).toFixed(0)} min`) : "--"}</span>
+              </div>
+            )}
+
             {/* Simulation Status Pill */}
             <button
               onClick={() => setSimulationActive(!simulationActive)}
@@ -263,11 +447,25 @@ export default function DashboardPage() {
               <span className="text-base">◈</span>
             </div>
             <div className="my-2 flex items-baseline gap-2">
-              {activeVehicle ? (
+              {!etaConfigured ? (
+                <div className="flex flex-col">
+                  <span className="text-xl font-bold font-mono text-amber-400">Awaiting ETA</span>
+                  <span className="text-[11px] text-slate-500 font-sans">Set mission time to start</span>
+                </div>
+              ) : activeVehicle ? (
                 <>
                   <span className="text-3xl font-bold font-mono text-purple-400">
-                    {Math.floor(activeVehicle.time_remaining / 60)}:
-                    {Math.floor(activeVehicle.time_remaining % 60).toString().padStart(2, "0")}
+                    {Math.floor(activeVehicle.time_remaining / 3600) > 0 ? (
+                      <>
+                        {Math.floor(activeVehicle.time_remaining / 3600)}h{" "}
+                        {Math.floor((activeVehicle.time_remaining % 3600) / 60)}m
+                      </>
+                    ) : (
+                      <>
+                        {Math.floor(activeVehicle.time_remaining / 60)}:
+                        {Math.floor(activeVehicle.time_remaining % 60).toString().padStart(2, "0")}
+                      </>
+                    )}
                   </span>
                   <span className="text-xs text-slate-400 font-mono">remaining</span>
                 </>
@@ -276,9 +474,15 @@ export default function DashboardPage() {
               )}
             </div>
             <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-white/5 pt-2">
-              <span>Total Plan: {route ? `${route.total_plan_time.toFixed(0)}s` : "--"}</span>
+              <span>
+                {plannedHours
+                  ? `Target: ${plannedHours >= 1 ? `${plannedHours.toFixed(2)} hr` : `${(plannedHours * 60).toFixed(0)} min`}`
+                  : route
+                  ? `Default: ${(route.total_plan_time / 3600).toFixed(2)} hr`
+                  : "--"}
+              </span>
               <span className="text-purple-300 font-mono">
-                {activeVehicle ? `Elapsed: ${activeVehicle.time_elapsed.toFixed(0)}s` : "--"}
+                {activeVehicle ? `Elapsed: ${(activeVehicle.time_elapsed / 60).toFixed(1)}m` : "--"}
               </span>
             </div>
           </div>
@@ -310,6 +514,10 @@ export default function DashboardPage() {
                   onSetCorrectionMode={setCorrectionMode}
                   onInjectDelay={handleInjectDelay}
                   onReset={handleReset}
+                  onSetPlannedTime={handleSetPlannedTime}
+                  onStopRover={handleStopRover}
+                  onResumeRover={handleResumeRover}
+                  roverStopped={activeVehicle ? stoppedVehicles.has(activeVehicle.vehicle_id) : false}
                 />
               </div>
             </div>
@@ -391,6 +599,10 @@ export default function DashboardPage() {
                 onSetCorrectionMode={setCorrectionMode}
                 onInjectDelay={handleInjectDelay}
                 onReset={handleReset}
+                onSetPlannedTime={handleSetPlannedTime}
+                onStopRover={handleStopRover}
+                onResumeRover={handleResumeRover}
+                roverStopped={activeVehicle ? stoppedVehicles.has(activeVehicle.vehicle_id) : false}
               />
             </div>
           </div>
@@ -413,6 +625,10 @@ export default function DashboardPage() {
                 onSetCorrectionMode={setCorrectionMode}
                 onInjectDelay={handleInjectDelay}
                 onReset={handleReset}
+                onSetPlannedTime={handleSetPlannedTime}
+                onStopRover={handleStopRover}
+                onResumeRover={handleResumeRover}
+                roverStopped={activeVehicle ? stoppedVehicles.has(activeVehicle.vehicle_id) : false}
               />
               <TelemetryChartSVG history={history} vehicleId={selectedVehicleId || "rover-alpha"} />
             </div>
@@ -431,6 +647,10 @@ export default function DashboardPage() {
                 onSetCorrectionMode={setCorrectionMode}
                 onInjectDelay={handleInjectDelay}
                 onReset={handleReset}
+                onSetPlannedTime={handleSetPlannedTime}
+                onStopRover={handleStopRover}
+                onResumeRover={handleResumeRover}
+                roverStopped={activeVehicle ? stoppedVehicles.has(activeVehicle.vehicle_id) : false}
               />
               <TelemetryChartSVG history={history} vehicleId={selectedVehicleId || "rover-alpha"} />
             </div>
