@@ -16,6 +16,11 @@ export class HudOverlay {
     // Cache DOM Elements
     this.elTimecode = document.getElementById('hud-timecode');
     this.elSpeedVal = document.getElementById('hud-speed-val');
+    this.elTargetSpeed = document.getElementById('hud-target-speed');
+    this.elWheelsVal = document.getElementById('hud-wheels-val');
+    this.elCrossTrack = document.getElementById('hud-cross-track');
+    this.elSteerAdjust = document.getElementById('hud-steer-adjust');
+    this.elRttVal = document.getElementById('hud-rtt-val');
     this.elSpeedBar = document.getElementById('hud-speed-bar');
     this.elEtaTimer = document.getElementById('hud-eta-timer');
     this.elProgressBar = document.getElementById('hud-progress-bar');
@@ -26,6 +31,8 @@ export class HudOverlay {
     this.elWsBadge = document.getElementById('hud-ws-badge');
     this.elStopResumeBtn = document.getElementById('hud-stop-resume-btn');
     this.elMuteBtn = document.getElementById('hud-mute-btn');
+    this.elSlipBtn = document.getElementById('hud-slip-btn');
+    this.elResetBtn = document.getElementById('hud-reset-btn');
 
     // Modals
     this.landingOverlay = document.getElementById('landing-overlay');
@@ -34,6 +41,15 @@ export class HudOverlay {
     this.selectedHours = 1.0;
 
     this.bindEvents();
+
+    // Listen to camera manager mode events
+    if (this.cameraMgr && this.cameraMgr.onModeChange) {
+      this.cameraMgr.onModeChange((mode) => {
+        if (this.elCamBadge) {
+          this.elCamBadge.textContent = `CAM: ${mode} [C]`;
+        }
+      });
+    }
   }
 
   bindEvents() {
@@ -107,7 +123,7 @@ export class HudOverlay {
     if (this.elModeBadge) {
       this.elModeBadge.addEventListener('click', () => {
         soundEngine.playClick();
-        const nextMode = this.physics.mode === 'autonomous' ? 'manual' : 'autonomous';
+        const nextMode = this.physics.mode === 'manual' ? 'model' : 'manual';
         this.physics.setMode(nextMode);
         this.updateControlsState();
       });
@@ -119,9 +135,9 @@ export class HudOverlay {
     if (this.elCamBadge) {
       this.elCamBadge.addEventListener('click', () => {
         soundEngine.playClick();
-        const modes = ['CHASE', 'ORBIT', 'FPV', 'TOP_DOWN'];
-        const nextIdx = (modes.indexOf(this.cameraMgr.mode) + 1) % modes.length;
-        this.cameraMgr.setMode(modes[nextIdx]);
+        if (this.cameraMgr && this.cameraMgr.toggleChase) {
+          this.cameraMgr.toggleChase();
+        }
       });
     }
 
@@ -155,18 +171,40 @@ export class HudOverlay {
         colorDots.forEach((d) => d.classList.remove('active'));
         dot.classList.add('active');
         this.rover.setPaintColor(hex);
-        soundEngine.playQuack(); // Fun feedback!
+        soundEngine.playQuack();
       });
     });
 
     // ----------------------------------------------------
-    // 9. Keyboard Shortcuts
+    // 9. Mud Slip Disturbance Button
+    // ----------------------------------------------------
+    if (this.elSlipBtn) {
+      this.elSlipBtn.addEventListener('click', () => {
+        soundEngine.playQuack();
+        this.physics.injectMudSlip(4.0, -0.75);
+      });
+    }
+
+    // ----------------------------------------------------
+    // 10. Reset Button
+    // ----------------------------------------------------
+    if (this.elResetBtn) {
+      this.elResetBtn.addEventListener('click', () => {
+        soundEngine.playClick();
+        this.physics.reset();
+        this.showEtaModal();
+      });
+    }
+
+    // ----------------------------------------------------
+    // 11. Keyboard Shortcuts
     // ----------------------------------------------------
     window.addEventListener('keydown', (e) => {
       // Avoid keyboard interference if typing in an input
       if (document.activeElement && document.activeElement.tagName === 'INPUT') {
         if (e.key === 'Enter') {
-          if (startMissionBtn) startMissionBtn.click();
+          const startMissionBtnInner = document.getElementById('btn-start-mission');
+          if (startMissionBtnInner) startMissionBtnInner.click();
         }
         return;
       }
@@ -174,16 +212,20 @@ export class HudOverlay {
       const key = e.key.toLowerCase();
       if (key === 'c') {
         soundEngine.playClick();
-        this.cameraMgr.toggleChase();
+        if (this.cameraMgr && this.cameraMgr.toggleChase) this.cameraMgr.toggleChase();
       } else if (key === 'v') {
         soundEngine.playClick();
-        this.cameraMgr.setMode(this.cameraMgr.mode === 'FPV' ? 'CHASE' : 'FPV');
+        if (this.cameraMgr && this.cameraMgr.setMode) {
+          this.cameraMgr.setMode(this.cameraMgr.mode === 'FPV' ? 'CHASE' : 'FPV');
+        }
       } else if (key === 't') {
         soundEngine.playClick();
-        this.cameraMgr.setMode(this.cameraMgr.mode === 'TOP_DOWN' ? 'CHASE' : 'TOP_DOWN');
+        if (this.cameraMgr && this.cameraMgr.setMode) {
+          this.cameraMgr.setMode(this.cameraMgr.mode === 'TOP_DOWN' ? 'CHASE' : 'TOP_DOWN');
+        }
       } else if (key === 'm') {
         soundEngine.playClick();
-        const nextMode = this.physics.mode === 'autonomous' ? 'manual' : 'autonomous';
+        const nextMode = this.physics.mode === 'manual' ? 'model' : 'manual';
         this.physics.setMode(nextMode);
         this.updateControlsState();
       } else if (key === 'h') {
@@ -193,6 +235,7 @@ export class HudOverlay {
         this.physics.reset();
         this.showEtaModal();
       } else if (key === ' ') {
+        e.preventDefault();
         this.physics.keys.brake = true;
       } else if (key === 'w' || e.key === 'ArrowUp') {
         this.physics.keys.forward = true;
@@ -216,13 +259,6 @@ export class HudOverlay {
       if (key === 'd' || e.key === 'ArrowRight') this.physics.keys.right = false;
       if (e.key === 'Shift') this.physics.keys.boost = false;
     });
-
-    // Listen to camera manager mode events
-    this.cameraMgr.onModeChange((mode) => {
-      if (this.elCamBadge) {
-        this.elCamBadge.innerHTML = `CAM: <span class="val">${mode} [C]</span>`;
-      }
-    });
   }
 
   showEtaModal() {
@@ -241,7 +277,8 @@ export class HudOverlay {
       this.elStopResumeBtn.classList.toggle('cyan', this.physics.stopped);
     }
     if (this.elModeBadge) {
-      this.elModeBadge.innerHTML = `MODE: <span class="val">${this.physics.mode.toUpperCase()} [M]</span>`;
+      const modeLabel = this.physics.mode === 'manual' ? 'MANUAL' : 'AI MODEL';
+      this.elModeBadge.textContent = `MODE: ${modeLabel} [M]`;
     }
   }
 
@@ -253,7 +290,7 @@ export class HudOverlay {
     }
   }
 
-  // Animation frame update
+  // Animation frame update — called every render loop tick
   update() {
     // 1. Timecode (mm:ss:ff)
     if (this.elTimecode) {
@@ -264,19 +301,53 @@ export class HudOverlay {
       this.elTimecode.textContent = `${m}:${s}:${cs}`;
     }
 
-    // 2. Speedometer
+    // 2. Speedometer & Target Speed (from simulate_rover.py)
     if (this.elSpeedVal) {
-      this.elSpeedVal.textContent = Math.abs(this.physics.speed).toFixed(2);
+      this.elSpeedVal.textContent = Math.abs(this.physics.effectiveSpeed).toFixed(2);
+    }
+    if (this.elTargetSpeed) {
+      this.elTargetSpeed.textContent = this.physics.targetSpeed.toFixed(2);
     }
     if (this.elSpeedBar) {
-      const pct = Math.min(100, (Math.abs(this.physics.speed) / 3.0) * 100);
+      const pct = Math.min(100, (Math.abs(this.physics.effectiveSpeed) / 3.0) * 100);
       this.elSpeedBar.style.width = `${pct}%`;
     }
 
-    // 3. ETA Timer & Route Progress
+    // 3. Differential Wheel Speeds (v_left / v_right)
+    if (this.elWheelsVal) {
+      this.elWheelsVal.textContent = `${this.physics.vLeft.toFixed(2)} / ${this.physics.vRight.toFixed(2)} m/s`;
+    }
+
+    // 4. Cross-Track Error & Steering Adjust (rad/s)
+    if (this.elCrossTrack) {
+      const cm = (this.physics.crossTrackOffset * 100).toFixed(1);
+      const sign = this.physics.crossTrackOffset > 0 ? '+' : '';
+      this.elCrossTrack.textContent = `${sign}${cm}cm`;
+    }
+    if (this.elSteerAdjust) {
+      this.elSteerAdjust.textContent = `${this.physics.steeringAdjust > 0 ? '+' : ''}${this.physics.steeringAdjust.toFixed(2)}`;
+    }
+
+    // 5. RTT Round-Trip Latency
+    if (this.elRttVal) {
+      this.elRttVal.textContent = this.physics.rttMs > 0 ? `${this.physics.rttMs.toFixed(1)}ms` : '--';
+    }
+
+    // 6. Mud Slip Disturbance Button Feedback
+    if (this.elSlipBtn) {
+      if (this.physics.disturbance < 0) {
+        this.elSlipBtn.textContent = '⚠️ SLIPPING (-75%)';
+        this.elSlipBtn.style.background = '#ff0055';
+      } else {
+        this.elSlipBtn.textContent = '🧪 MUD SLIP (-75%)';
+        this.elSlipBtn.style.background = '#e11d48';
+      }
+    }
+
+    // 7. ETA Timer & Route Progress
     if (this.route.targetHours) {
       const totalPlannedSec = this.route.targetHours * 3600;
-      const progressRatio = Math.min(1.0, this.physics.distanceCovered / this.route.totalDistance);
+      const progressRatio = Math.min(1.0, this.physics.s / this.route.totalDistance);
       const remainingSec = Math.max(0, totalPlannedSec - this.physics.timeElapsed);
 
       const remH = Math.floor(remainingSec / 3600);
@@ -303,7 +374,7 @@ export class HudOverlay {
       }
     }
 
-    // 4. Schedule Drift Delta-T
+    // 8. Schedule Drift Delta-T
     if (this.elDriftVal) {
       const dtVal = this.physics.deltaT;
       const sign = dtVal > 0 ? '+' : '';

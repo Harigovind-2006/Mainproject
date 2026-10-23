@@ -1,56 +1,68 @@
 /**
  * WebSocket Telemetry Bridge
- * Synchronizes 3D simulation telemetry with the FastAPI backend at ws://localhost:8000
- * Falls back seamlessly to offline standalone mode if the backend is not running.
+ * Directly matches backend/simulation/simulate_rover.py:
+ * Connects to ws://127.0.0.1:8000/ws/vehicle/rover-alpha?mode=model
+ * Streams real-time rover telemetry and receives AI closed-loop corrections.
  */
 export class WsBridge {
-  constructor(url = 'ws://localhost:8000/ws/dashboard') {
-    this.url = url;
+  constructor(vehicleId = 'rover-alpha', mode = 'model') {
+    this.vehicleId = vehicleId;
+    this.mode = mode;
+    this.baseUrl = 'ws://127.0.0.1:8000/ws/vehicle';
     this.ws = null;
     this.isConnected = false;
     this.reconnectTimer = null;
+    this.pendingPingStart = 0;
     this.onStateChangeCallbacks = [];
+    this.onCorrectionCallbacks = [];
   }
 
   onStateChange(cb) {
     this.onStateChangeCallbacks.push(cb);
   }
 
+  onCorrection(cb) {
+    this.onCorrectionCallbacks.push(cb);
+  }
+
   connect() {
+    const url = `${this.baseUrl}/${this.vehicleId}?mode=${this.mode}`;
     try {
-      this.ws = new WebSocket(this.url);
+      this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
         this.isConnected = true;
-        this.notify(true);
-        console.log('[WsBridge] Connected to FastAPI backend at', this.url);
+        this.notifyState(true);
+        console.log(`[WsBridge] Connected to backend vehicle endpoint: ${url}`);
       };
 
       this.ws.onclose = () => {
         this.isConnected = false;
-        this.notify(false);
+        this.notifyState(false);
         this.scheduleReconnect();
       };
 
       this.ws.onerror = () => {
         this.isConnected = false;
-        this.notify(false);
+        this.notifyState(false);
       };
 
       this.ws.onmessage = (event) => {
+        const tEnd = performance.now();
+        const rttMs = this.pendingPingStart > 0 ? (tEnd - this.pendingPingStart) : 0;
         try {
-          const data = JSON.parse(event.data);
-          // Handle backend broadcasts
-          if (data.type === 'PONG') {
-            // Heartbeat
+          const resp = JSON.parse(event.data);
+          if (rttMs > 0 && !resp.server_latency_ms) {
+            resp.server_latency_ms = Math.round(rttMs);
           }
+          this.onCorrectionCallbacks.forEach((cb) => cb(resp));
         } catch (e) {
-          // ignore parse errors
+          // ignore parsing error
         }
       };
     } catch (e) {
       this.isConnected = false;
-      this.notify(false);
+      this.notifyState(false);
       this.scheduleReconnect();
     }
   }
@@ -60,29 +72,29 @@ export class WsBridge {
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
-    }, 5000);
+    }, 4000);
   }
 
-  sendTelemetry(vehicleId, x, z, speed, heading, deltaT) {
+  // Sends the exact telemetry payload as simulate_rover.py
+  sendTelemetry(x2d, y2d, speed, mode = 'model') {
     if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
     try {
-      this.ws.send(JSON.stringify({
-        type: 'TELEMETRY_UPDATE',
-        vehicle_id: vehicleId,
-        x: x,
-        y: z,
-        speed: speed,
-        heading: heading,
-        delta_T: deltaT,
-        timestamp: Date.now() / 1000
-      }));
+      this.pendingPingStart = performance.now();
+      const payload = {
+        vehicle_id: this.vehicleId,
+        position: [Math.round(x2d * 1000) / 1000, Math.round(y2d * 1000) / 1000],
+        speed: Math.round(speed * 1000) / 1000,
+        timestamp: Date.now() / 1000,
+        mode: mode
+      };
+      this.ws.send(JSON.stringify(payload));
     } catch (e) {
-      // ignore send error
+      // ignore
     }
   }
 
-  notify(status) {
+  notifyState(status) {
     this.onStateChangeCallbacks.forEach((cb) => cb(status));
   }
 }

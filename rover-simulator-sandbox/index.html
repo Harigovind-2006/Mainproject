@@ -126,6 +126,10 @@
             <span>LINK:</span>
             <span class="val">○ STANDALONE</span>
           </div>
+          <div class="hud-pill">
+            <span>RTT:</span>
+            <span id="hud-rtt-val" class="val" style="color: var(--cyan);">--</span>
+          </div>
           <button id="hud-mute-btn" class="comic-btn sm dark" style="font-size: 0.72rem; padding: 4px 10px;">
             🔊 SOUND ON
           </button>
@@ -138,18 +142,25 @@
         <div class="speedo-card">
           <div style="display: flex; flex-direction: column; align-items: center;">
             <div id="hud-speed-val" class="speedo-num">0.00</div>
-            <div class="speedo-unit">METERS / SEC</div>
+            <div class="speedo-unit">ACTUAL m/s</div>
+            <div style="font-size: 0.65rem; color: var(--slate); font-family: 'JetBrains Mono', monospace; margin-top: 2px;">
+              TARGET: <span id="hud-target-speed" style="color: var(--yellow);">1.50</span>
+            </div>
           </div>
 
           <div class="speedo-bars">
-            <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--slate); font-weight: 700;">
-              <span>VELOCITY GAUGE</span>
-              <span>MAX 3.0 m/s</span>
+            <div style="display: flex; justify-content: space-between; font-size: 0.68rem; color: var(--slate); font-weight: 700;">
+              <span>WHEELS (L / R)</span>
+              <span id="hud-wheels-val" style="color: #fff; font-family: 'JetBrains Mono', monospace;">0.00 / 0.00 m/s</span>
             </div>
             <div class="speed-meter">
               <div id="hud-speed-bar" class="speed-meter-fill"></div>
             </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 0.68rem; color: var(--slate);">
+              <span>e_lat: <strong id="hud-cross-track" style="color: var(--cyan); font-family: 'JetBrains Mono', monospace;">0.0cm</strong></span>
+              <span>STR: <strong id="hud-steer-adjust" style="color: #fff; font-family: 'JetBrains Mono', monospace;">0.00</strong> rad/s</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
               <button id="hud-stop-resume-btn" class="comic-btn sm" style="padding: 4px 12px; font-size: 0.78rem;">
                 ⏹ STOP
               </button>
@@ -176,21 +187,27 @@
           </div>
 
           <div style="display: flex; justify-content: space-between; width: 100%; font-size: 0.68rem; color: var(--slate); margin-top: 2px;">
-            <span>ROUTE DISTANCE: 188.3 m</span>
-            <span style="color: var(--yellow);">CLOSED-LOOP SPEED SCALING</span>
+            <span>ROUTE DISTANCE: 223.6 m (4 LANES)</span>
+            <span style="color: var(--yellow);">OSPINA & NOGUCHI (2025)</span>
           </div>
         </div>
 
         <!-- Right Quick Actions & Palette -->
         <div class="actions-hud-right">
-          <div style="display: flex; gap: 8px;">
-            <button id="hud-mode-badge" class="comic-btn sm cyan" style="font-size: 0.78rem;">
-              MODE: AUTONOMOUS [M]
+          <div style="display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end;">
+            <button id="hud-slip-btn" class="comic-btn sm" style="font-size: 0.74rem; background: #e11d48; color: #fff;" title="Inject mud slip disturbance (-75% traction) matching simulate_rover.py">
+              🧪 MUD SLIP (-75%)
             </button>
-            <button id="hud-cam-badge" class="comic-btn sm dark" style="font-size: 0.78rem;">
+            <button id="hud-reset-btn" class="comic-btn sm dark" style="font-size: 0.74rem;">
+              ↺ RESET [R]
+            </button>
+            <button id="hud-mode-badge" class="comic-btn sm cyan" style="font-size: 0.74rem;">
+              MODE: AI MODEL [M]
+            </button>
+            <button id="hud-cam-badge" class="comic-btn sm dark" style="font-size: 0.74rem;">
               CAM: CHASE [C]
             </button>
-            <button id="hud-horn-btn" class="comic-btn sm" style="font-size: 0.78rem; background: var(--hazard); color: #fff;">
+            <button id="hud-horn-btn" class="comic-btn sm" style="font-size: 0.74rem; background: var(--hazard); color: #fff;">
               🎺 QUACK [H]
             </button>
           </div>

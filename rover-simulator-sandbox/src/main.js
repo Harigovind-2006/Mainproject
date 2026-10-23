@@ -94,9 +94,14 @@ class SimulatorApp {
     // 5. Multi-Mode Camera System
     this.cameraManager = new CameraManager(this.camera, this.renderer.domElement);
 
-    // 6. WebSocket Live Telemetry Bridge to FastAPI
-    this.wsBridge = new WsBridge('ws://localhost:8000/ws/dashboard');
+    // 6. WebSocket Live Telemetry Bridge to FastAPI /ws/vehicle endpoint
+    this.wsBridge = new WsBridge('rover-alpha', 'model');
     this.wsBridge.connect();
+
+    // Pipe AI closed-loop corrections from backend → physics engine
+    this.wsBridge.onCorrection((packet) => {
+      this.physics.applyClosedLoopCorrection(packet);
+    });
 
     // 7. HUD Overlay & Event Handling
     this.hud = new HudOverlay(
@@ -105,8 +110,13 @@ class SimulatorApp {
       this.cameraManager,
       this.rover,
       (targetHours) => {
-        // Send initial sync to backend if connected
-        this.wsBridge.sendTelemetry('rover-alpha', this.physics.position.x, this.physics.position.z, this.physics.speed, this.physics.heading, 0);
+        // Send initial telemetry sync to backend when mission starts
+        this.wsBridge.sendTelemetry(
+          this.physics.x2d,
+          this.physics.y2d,
+          this.physics.effectiveSpeed,
+          this.physics.mode
+        );
       }
     );
 
@@ -157,7 +167,7 @@ class SimulatorApp {
       this.syncRoverTransform();
 
       // 3. Animate Rover Subsystems (wheel rotation, lidar, pitch)
-      this.rover.update(dt, this.physics.speed, this.physics.steerAngle, this.physics.isBraking);
+      this.rover.update(dt, this.physics.effectiveSpeed, this.physics.steerAngle, this.physics.isBraking);
 
       // 4. Update Field Environment (Soccer ball physics, collisions, dust)
       this.environment.update(dt, this.physics.position, 0.65, () => {
@@ -165,27 +175,26 @@ class SimulatorApp {
       });
 
       // 5. Emit dust from wheels when driving
-      if (Math.abs(this.physics.speed) > 0.4) {
+      if (Math.abs(this.physics.effectiveSpeed) > 0.4) {
         this.environment.emitDust(this.physics.position, 1);
       }
 
       // 6. Update Audio Motor Pitch
-      soundEngine.updateMotor(this.physics.speed, 3.0);
+      soundEngine.updateMotor(this.physics.effectiveSpeed, 3.0);
 
       // 7. Update Camera (Chase tracking / Orbit)
       this.cameraManager.update(dt, this.physics.position, this.physics.heading);
 
       // 8. Transmit Telemetry over WebSocket (at ~10 Hz)
+      // Sends x2d/y2d (2D field coords matching simulate_rover.py) not 3D world coords
       this.telemetryTick += dt;
       if (this.telemetryTick >= 0.1) {
         this.telemetryTick = 0;
         this.wsBridge.sendTelemetry(
-          'rover-alpha',
-          this.physics.position.x,
-          this.physics.position.z,
-          this.physics.speed,
-          this.physics.heading,
-          this.physics.deltaT
+          this.physics.x2d,
+          this.physics.y2d,
+          this.physics.effectiveSpeed,
+          this.physics.mode
         );
       }
 

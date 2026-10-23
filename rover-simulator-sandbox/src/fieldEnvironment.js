@@ -165,10 +165,11 @@ export class FieldEnvironment {
     const flagGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.05, 12);
 
     this.route.segments.forEach((seg) => {
-      const pose = this.route.getPoseAtDistance(seg.startS);
-      if (pose && pose.position) {
+      const coord = this.route.getCoordinatesAtDistance(seg.startS);
+      if (coord) {
+        const pos3D = this.route.to3D(coord.x, coord.y, 0.03);
         const marker = new THREE.Mesh(flagGeo, flagMat);
-        marker.position.copy(pose.position).setY(0.03);
+        marker.position.copy(pos3D);
         this.scene.add(marker);
       }
     });
